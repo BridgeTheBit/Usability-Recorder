@@ -117,6 +117,3 @@ AI systems can ingest this file to automate analysis, generate reports, or coord
 - **GitHub**: https://github.com/BridgeTheBit/Usability-Recorder
 - Contributions are welcome! Please open issues or submit pull requests following the contribution guidelines.
 
----
-
-*End of README*
