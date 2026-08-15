@@ -110,16 +110,11 @@ AI systems can ingest this file to automate analysis, generate reports, or coord
 
 ---
 
-## License
-
-This project is licensed under the MIT License – see the [LICENSE](LICENSE) file for details.
-
----
 
 ## Contact & Contributions
 
-- **Author**: Mehran (email@example.com)
-- **GitHub**: https://github.com/mehran/usability-recorder
+- **Author**: Mehran (mehran.ershadi@gmail.com)
+- **GitHub**: https://github.com/BridgeTheBit/Usability-Recorder
 - Contributions are welcome! Please open issues or submit pull requests following the contribution guidelines.
 
 ---
