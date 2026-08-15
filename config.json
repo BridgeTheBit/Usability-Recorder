@@ -1,0 +1,9 @@
+{
+  "hotkey": "c",
+  "fps": 30,
+  "privacy_mode": false,
+  "pupil_mode": "disabled",
+  "pupil_ip": "127.0.0.1",
+  "pupil_port": 50020,
+  "session_root": "D:/Mehran/Usability Recorder_2"
+}
