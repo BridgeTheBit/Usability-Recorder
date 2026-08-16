@@ -1,119 +1,116 @@
-# Usability Testing Recorder (Phase 1)
+# Usability Testing Recorder (v1.1.2)
 
-A Python desktop application for conducting usability testing sessions with single-participant research studies. Phase 1 focuses on lightweight, robust raw data recording across three synchronized streams without live streaming or replay GUIs.
-
----
-
-## Key Capabilities (Phase 1 Scope)
-
-1. **Mouse & Keyboard Event Logging**: Captures mouse moves (sampled at configurable Hz), clicks, scrolls, and key events into `events.csv`. Supports a privacy mode (keystroke count only).
-2. **Full Screen Recording**: Records the primary screen to an `.mp4` video. Prefers `ffmpeg` for efficiency and stability, with fallback to `mss` + `opencv-python`.
-3. **Pupil Labs Eye Tracker Trigger**: Supports **Pupil Capture (Pupil Core)** via ZMQ Remote API (`tcp://127.0.0.1:50020` or configurable Remote IP/Port) AND **Pupil Labs Realtime API** for Neon / Pupil Invisible devices.
+A hybrid usability testing recorder combining a minimal desktop control widget (Qt/PySide6) with a modern local web administration panel (Flask + Vanilla HTML5/CSS3 SPA). It synchronizes screen recording, input events (mouse/keyboard), active OS windows, browser-specific page interactions (clicks, menus, buttons via extension), and Pupil Labs eye trackers under a single monotonic clock reference.
 
 ---
 
-## Pupil Capture (Pupil Core) Setup & Remote IP Configuration
+## 📸 Architecture Overview
 
-To control recording in **Pupil Capture**:
-1. Launch **Pupil Capture** software on the local host or remote recording computer.
-2. In Pupil Capture, ensure the **Pupil Remote** plugin is active (default listening port is `50020`).
-3. In this application's GUI:
-   - Select **Pupil Capture (ZMQ)** as the Connection Mode.
-   - Enter the **Remote IP** (e.g. `127.0.0.1` for local machine or `192.168.x.x` for remote).
-   - Enter the **ZMQ Port** (default `50020`).
-4. When you click **Start Session**, the application sends the `'R {session_name}'` command over ZMQ to trigger recording start in Pupil Capture. When you stop the session, it sends `'r'` to stop and save the recording.
-
----
-
-## Critical Requirement: Shared Reference Clock (`t0`)
-
-All data streams are timestamped against a single shared monotonic clock (`time.monotonic()`), **not wall-clock time**. 
-
-- **Session Reference (`t0`)**: Recorded the instant "Start Session" is executed.
-- **`events.csv`**: Every event timestamp column (`timestamp_s`) is `time.monotonic() - t0`.
-- **Screen Recording**: First frame timestamp relative to `t0` is recorded in `session_metadata.json`.
-- **Pupil Labs Clock Offset**: Estimated clock offset (via ZMQ `'t'` time query or device clock offset API) and trigger timestamps relative to `t0` are recorded for offline synchronization in future phases.
+The application utilizes a distributed design for low CPU overhead:
+1. **Desktop Recording Widget (Qt)**: A tiny, always-on-top window with only two controls: **Start/Stop Recording** and a **Settings Gear** button. It minimizes automatically when starting a recording.
+2. **Local Settings Server (Flask)**: Runs a lightweight daemon server on `http://127.0.0.1:5000` to handle configuration, active recording status, session listings, analytics, and video processing.
+3. **Web Control Panel (SPA)**: A modern dark-mode control panel with glassmorphism styling, accessible via browser. It includes:
+   - **Recording**: Auto-saves participant IDs and task labels.
+   - **Settings**: Adjust FPS, stop hotkeys, privacy modes, and Pupil Core ZMQ/Realtime settings.
+   - **Sessions**: Browse recorded sessions, metadata, and open folders directly.
+   - **Analysis**: Batch-analyze session folders to generate aggregated metrics.
+   - **Video Processing**: Overlay animated clicks into screen recordings with live preview and variable frame rate (VFR) synchronization.
+   - **Export**: Export consolidated data.
 
 ---
 
-## Folder & File Structure
+## 🌟 Key Capabilities
+
+1. **Precision Input Logging**: Logs mouse moves, clicks, scrolls, and key presses relative to a monotonic clock reference (`t0`) into `events.csv`. Features a privacy mode that records keypress counts only.
+2. **Robust Screen Recording**: Grabs high-quality desktop video using FFmpeg (`gdigrab`/`x11grab`) with instant fallbacks to PyMSS + OpenCV `VideoWriter`.
+3. **In-Browser Activity Tracking**: Tracks active tabs, window changes, and inner-page interactions (clicks on buttons, links, menus, select controls) using a companion Chrome/Edge Extension via WebSockets (port 9877).
+4. **Pupil Labs Eye Tracker Integration**: Seamless triggers for **Pupil Core** (via ZMQ) and newer **Pupil Labs Realtime API** (Neon/Invisible) with automatic time-offset calculations.
+5. **Video click burn-in processor**: Renders click animation overlays onto `screen_recording_with_clicks.mp4` with a live visual preview in the browser. Uses millisecond video timestamps (`CAP_PROP_POS_MSEC`) to prevent lag on variable framerate videos.
+
+---
+
+## 📁 Session File Structure
 
 Each session creates a dedicated folder under `sessions/{participant_id}_{timestamp}/`:
 
 ```
-sessions/P001_20260801_120000/
-├── events.csv                 # Mouse/keyboard logs (timestamp_s, event_type, detail)
-├── screen_recording.mp4       # Full screen video file
-├── session_metadata.json      # Metadata, clock offsets, t0, and file paths
-└── session.log                # Execution log and warnings
+sessions/P001_20260816_120000/
+├── events.csv                         # Mouse/keyboard input telemetry
+├── screen_recording.mp4               # Raw screen capture video
+├── screen_recording_with_clicks.mp4   # Final post-processed video with click circles
+├── web_page_visits.csv                # Browser extension logs (visited URLs, element clicks)
+├── session_metadata.json              # Monotonic t0, offsets, device serials, and stats
+└── session.log                        # Internal system execution logs
 ```
 
 ---
 
-## Installation
+## 🚀 Installation & Setup
 
 ### 1. Python Environment
-
-Ensure Python 3.9+ is installed. Install requirements:
-
+Requires Python 3.9+. Install dependencies:
 ```bash
+.venv\Scripts\activate   # If using a virtual environment
 pip install -r requirements.txt
 ```
 
-### 2. FFmpeg (Preferred for Video Recording)
+### 2. FFmpeg (Highly Recommended)
+- **Windows**: Place `ffmpeg.exe` in the system `PATH` or create an `ffmpeg/` directory inside the project root folder containing `ffmpeg.exe`. 
+- Without FFmpeg, the recorder automatically uses a Python-based OpenCV capture fallback.
 
-- On **Windows**, install FFmpeg and add `ffmpeg.exe` to your system `PATH` (or place `ffmpeg.exe` inside an `ffmpeg/` folder in this project root).
-- If FFmpeg is missing, the application automatically falls back to `mss` + OpenCV `VideoWriter`.
+### 3. Browser Extension Installation
+1. Open Chrome/Edge and go to `chrome://extensions/`.
+2. Enable **Developer mode** (top-right toggle).
+3. Click **Load unpacked** and select the `browser_extension/` directory of this repository.
+4. Ensure **Web Page Tracking** is enabled in the settings panel (uses WebSocket on port `9877`).
 
 ---
 
-## Usage
+## 💻 Usage
 
-Start the application GUI:
-
+Run the main application:
 ```bash
 python main.py
 ```
-
-### Session Controls & Hotkey Behavior
-
-1. Enter **Participant ID** (required) and optional **Task / Condition**.
-2. Configure **Pupil Labs Eye Tracker Settings** (Connection Mode, Remote IP, ZMQ Port).
-3. Select desired **FPS** (default 15) and **Privacy Mode** preference.
-4. Click **Start Session**:
-   - The application starts all 3 recording streams.
-   - The main GUI **minimizes immediately** to avoid distracting the study participant.
-5. Stop the session:
-   - Press the global stop hotkey (default: `Ctrl+Alt+F9`, configurable in UI).
-   - Alternatively, restore the GUI from the taskbar and click **Stop Session**.
-6. Upon stopping, all streams are finalized and the window restores automatically with a completion summary.
-# AI Integration Overview
-
-This repository now includes an **AI Overview** file (`ai_overview.md`) that describes the internal architecture, data flow, and synchronization mechanisms of the Usability Testing Recorder. This document is intended for future AI agents to understand the program state, metadata, and how to interact programmatically.
-
-- **File**: `ai_overview.md` – Provides a concise, machine‑readable description of:
-  - Shared reference clock (`t0`) and how timestamps are generated.
-  - Interaction with Pupil Labs eye tracker (ZMQ and Realtime API).
-  - Session lifecycle managed by `SessionController`.
-  - Locations of generated data (`events.csv`, `screen_recording.mp4`, `session_metadata.json`).
-  - Recommended entry points for AI agents (e.g., reading `session_metadata.json` for offsets, parsing `events.csv` for click/keystroke metrics).
-
-AI systems can ingest this file to automate analysis, generate reports, or coordinate additional sensors.
+1. Click the ⚙ (Gear) icon in the PyQt widget to open the Web Panel in your browser.
+2. Configure your settings and input the **Participant ID** (required).
+3. Hit **Start** in the desktop widget. The widget minimizes itself to clear the desktop screen.
+4. Stop recording by pressing the global hotkey (default: `Ctrl+Alt+F9`) or using the stop button on the widget.
+5. Head back to the Web Panel's **Video Processing** tab, select the session, and click **Start Processing** to generate the overlaid video with live preview.
 
 ---
 
-## Future Work
+## 📋 Version History (Changelog)
 
-- **Phase 2**: Implement live replay UI, real‑time gaze overlay, and remote data streaming.
-- **Phase 3**: Add machine‑learning based interaction classification and automatic report generation.
-- **Enhanced Eye‑Tracker Integration**: Support multiple simultaneous eye‑trackers and automated calibration routines.
+### v1.1.2 - Video Processing Integration (Current)
+- Moved click overlay video post-processor from PySide6 Qt window to a pure Python background thread.
+- Added video processing dashboard to Web Panel:
+  - Visual session selector (shows sessions containing events and recordings).
+  - Real-time video processing progress bar.
+  - Live preview frame generation showing click circles as they are processed.
+- Implemented `CAP_PROP_POS_MSEC` timing in OpenCV frame decoder to support variable frame rate (VFR) videos, removing overlay delays.
+- Added startup offset heuristic calculations for older recorded sessions.
+- Fixed preview image rendering bugs using Blob URLs.
+
+### v1.1.1 - Web Panel Redesign
+- Simplified desktop widget to a clean minimalist interface (Start/Stop + Gear icon).
+- Introduced local Flask configuration server on port 5000.
+- Implemented a unified modern single-page-application (SPA) web settings dashboard.
+
+### v1.1.0 - Web & Browser Extension Tracking
+- Added browser activity tracking via a dedicated Chrome/Edge Extension.
+- Set up background WebSocket server (port 9877) to intercept active page visits.
+- Expanded event capture to menus, button clicks, select dropdowns, and input interactions.
+
+### v1.0.0 - Initial Release (Phase 1)
+- core Qt desktop recorder.
+- Simultaneous input logging, screen capturing, and ZMQ Pupil Core triggers.
+- Monotonic clock reference (`t0`) implementation.
 
 ---
 
-
-## Contact & Contributions
+## ✉ Contact & Contributions
 
 - **Author**: Mehran (mehran.ershadi@gmail.com)
-- **GitHub**: https://github.com/BridgeTheBit/Usability-Recorder
-- Contributions are welcome! Please open issues or submit pull requests following the contribution guidelines.
-
+- **GitHub**: [BridgeTheBit/Usability-Recorder](https://github.com/BridgeTheBit/Usability-Recorder)
+- Contributions, bug reports, and suggestions are welcome. Feel free to open issues or submit pull requests.
