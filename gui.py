@@ -1,273 +1,339 @@
+"""
+gui.py — Minimal desktop recording widget for Usability Testing Recorder.
+
+Only two controls:
+  • Start / Stop button  (large, changes color/label while recording)
+  • ⚙ Gear button        (opens http://127.0.0.1:5000 – the settings web panel)
+
+All settings, session management, export, and post-processing live in the
+web panel served by settings_server.py.
+"""
 from __future__ import annotations
 
-import json
+import webbrowser
 from pathlib import Path
 from typing import Optional
 
-# pyrefly: ignore [missing-import]
-from PySide6.QtCore import Qt, Signal
-# pyrefly: ignore [missing-import]
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QFileDialog,
-    QFormLayout,
-    QGroupBox,
+    QApplication,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMessageBox,
     QPushButton,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
-from analyzer import batch_analyze_sessions
-from video_processor import VideoProcessorWindow
+from settings_server import AppState, SettingsServer, app_state, settings_server
+from web_tracker import WebTracker
 
 try:
     from pynput import keyboard as pynput_keyboard
-except Exception:  # pragma: no cover
+except Exception:
     pynput_keyboard = None
 
+try:
+    from video_processor import VideoProcessorWindow
+except Exception:
+    VideoProcessorWindow = None
 
-def parse_hotkey_to_pynput(hotkey_str: str) -> str:
-    """Convert human hotkey string like 'Ctrl+Alt+F9' to pynput format '<ctrl>+<alt>+<f9>'."""
+
+def _parse_hotkey(hotkey_str: str) -> str:
     parts = [p.strip().lower() for p in hotkey_str.split("+") if p.strip()]
-    parsed_parts = []
-    for part in parts:
-        if part in ("ctrl", "control"):
-            parsed_parts.append("<ctrl>")
-        elif part == "alt":
-            parsed_parts.append("<alt>")
-        elif part == "shift":
-            parsed_parts.append("<shift>")
-        elif part in ("cmd", "win", "super"):
-            parsed_parts.append("<cmd>")
-        elif part.startswith("f") and part[1:].isdigit():
-            parsed_parts.append(f"<{part}>")
+    out = []
+    for p in parts:
+        if p in ("ctrl", "control"):
+            out.append("<ctrl>")
+        elif p == "alt":
+            out.append("<alt>")
+        elif p == "shift":
+            out.append("<shift>")
+        elif p in ("cmd", "win", "super"):
+            out.append("<cmd>")
+        elif p.startswith("f") and p[1:].isdigit():
+            out.append(f"<{p}>")
         else:
-            parsed_parts.append(part)
-    return "+".join(parsed_parts)
+            out.append(p)
+    return "+".join(out)
 
 
-class SessionWindow(QWidget):
+# ─── Minimal Recording Widget ─────────────────────────────────────────────────
+
+class RecorderWidget(QWidget):
     stop_requested = Signal()
+
+    # ── Styles ────────────────────────────────────────────────────────────────
+
+    _WINDOW_STYLE = """
+        RecorderWidget {
+            background-color: #0d1117;
+            border-radius: 12px;
+        }
+    """
+    _BTN_IDLE = """
+        QPushButton {
+            background-color: #238636;
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }
+        QPushButton:hover   { background-color: #2ea043; }
+        QPushButton:pressed { background-color: #196127; }
+        QPushButton:disabled{ background-color: #1c2128; color: #484f58; }
+    """
+    _BTN_REC = """
+        QPushButton {
+            background-color: #da3633;
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }
+        QPushButton:hover   { background-color: #f85149; }
+        QPushButton:pressed { background-color: #b02a27; }
+    """
+    _GEAR_STYLE = """
+        QPushButton {
+            background-color: transparent;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            color: #8b949e;
+            font-size: 18px;
+        }
+        QPushButton:hover   { background-color: #21262d; color: #58a6ff; border-color: #58a6ff; }
+        QPushButton:pressed { background-color: #161b22; }
+    """
 
     def __init__(self, controller) -> None:
         super().__init__()
         self.controller = controller
+        self._state: AppState = app_state
+        self._server: SettingsServer = settings_server
+
+        self._web_tracker: Optional[WebTracker] = None
+        self._video_proc_win = None
+        self._hotkey_listener = None
+        self._elapsed_timer: Optional[QTimer] = None
+        self._elapsed_seconds = 0
+
         self.stop_requested.connect(self.on_stop)
-        self._video_processor_window = None
 
-        # Form Controls
-        self.participant_input = QLineEdit()
-        self.participant_input.setPlaceholderText("e.g. P001")
-        self.task_input = QLineEdit()
-        self.task_input.setPlaceholderText("e.g. Task_1_Checkout")
-        self.session_input = QLineEdit()
-        self.session_input.setPlaceholderText("e.g. S001")
+        self._build_ui()
+        self._apply_saved_tracking()
+        self._register_hotkey(self._state.config.get("hotkey", "Ctrl+Alt+F9"))
 
-        self.session_root_input = QLineEdit()
-        self.session_root_input.setPlaceholderText("e.g. ./sessions")
-        self.session_root_input.setText("sessions")
-        
-        self.browse_button = QPushButton("Browse...")
-        self.browse_button.clicked.connect(self._browse_session_root)
+        # Poll for web-panel-initiated actions every 500 ms
+        self._poll_timer = QTimer(self)
+        self._poll_timer.timeout.connect(self._poll)
+        self._poll_timer.start(500)
 
-        self.fps_input = QSpinBox()
-        self.fps_input.setRange(1, 120)
-        self.fps_input.setValue(15)
+    # ── UI Construction ───────────────────────────────────────────────────────
 
-        self.privacy_checkbox = QCheckBox("Enable Keystroke Privacy (log count only)")
-        self.privacy_checkbox.setToolTip("Mask specific character key names for privacy compliance.")
+    def _build_ui(self) -> None:
+        self.setWindowTitle("Usability Recorder")
+        self.setFixedSize(360, 130)
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
+        self.setStyleSheet(self._WINDOW_STYLE)
 
-        self.hotkey_input = QLineEdit("Ctrl+Alt+F9")
-        self.hotkey_input.setToolTip("System-wide hotkey to stop session while window is minimized.")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 14, 18, 14)
+        root.setSpacing(10)
 
-        # Pupil Labs Eye Tracker Configuration Controls
-        self.pupil_mode_combo = QComboBox()
-        self.pupil_mode_combo.addItem("Pupil Capture (ZMQ)", "zmq")
-        self.pupil_mode_combo.addItem("Pupil Labs Realtime API (Neon/Invisible)", "realtime")
-        self.pupil_mode_combo.addItem("Auto-Detect", "auto")
-        self.pupil_mode_combo.addItem("Disabled", "disabled")
+        # ── Header row ────────────────────────────────────────────────────────
+        hdr = QHBoxLayout()
+        hdr.setSpacing(8)
 
-        self.pupil_ip_input = QLineEdit("127.0.0.1")
-        self.pupil_ip_input.setPlaceholderText("e.g. 127.0.0.1 or 192.168.1.100")
-        self.pupil_ip_input.setToolTip("IP address of the machine running Pupil Capture or eye tracker.")
+        self._dot = QLabel("●")
+        self._dot.setStyleSheet("color: #484f58; font-size: 11px;")
 
-        self.pupil_port_input = QSpinBox()
-        self.pupil_port_input.setRange(1024, 65535)
-        self.pupil_port_input.setValue(50020)
-        self.pupil_port_input.setToolTip("ZMQ Port (default 50020 for Pupil Capture Remote API).")
+        self._title = QLabel("Usability Test Recorder")
+        self._title.setStyleSheet("color: #8b949e; font-size: 12px; font-weight: 600;")
 
-        # Status & Controls
-        self.status_label = QLabel("Status: Idle")
-        self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("font-weight: bold; font-size: 13px; color: #2b2b2b;")
+        hdr.addWidget(self._dot)
+        hdr.addWidget(self._title)
+        hdr.addStretch()
 
-        self.start_button = QPushButton("Start Session")
-        self.start_button.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; padding: 6px 12px;")
-        self.stop_button = QPushButton("Stop Session")
-        self.stop_button.setStyleSheet("background-color: #c62828; color: white; font-weight: bold; padding: 6px 12px;")
-        self.stop_button.setEnabled(False)
+        self._gear_btn = QPushButton("⚙")
+        self._gear_btn.setFixedSize(32, 32)
+        self._gear_btn.setToolTip("Open Settings & Sessions Panel (localhost:5000)")
+        self._gear_btn.setStyleSheet(self._GEAR_STYLE)
+        self._gear_btn.clicked.connect(self._open_panel)
+        hdr.addWidget(self._gear_btn)
 
-        self.export_button = QPushButton("Export Metrics Summary CSV")
-        self.export_button.setStyleSheet("background-color: #1565c0; color: white; font-weight: bold; padding: 5px 10px;")
+        root.addLayout(hdr)
 
-        self.post_process_btn = QPushButton("Burn Clicks into Video (Post-Process)")
-        self.post_process_btn.setStyleSheet("background-color: #f57c00; color: white; font-weight: bold; padding: 5px 10px;")
+        # ── Status ────────────────────────────────────────────────────────────
+        self._status = QLabel("Ready — open ⚙ to configure")
+        self._status.setStyleSheet("color: #484f58; font-size: 11px;")
+        root.addWidget(self._status)
 
-        self._hotkey_listener: Optional[object] = None
+        # ── Record button ─────────────────────────────────────────────────────
+        self._rec_btn = QPushButton("▶   Start Recording")
+        self._rec_btn.setFixedHeight(44)
+        self._rec_btn.setStyleSheet(self._BTN_IDLE)
+        self._rec_btn.clicked.connect(self._toggle_recording)
+        root.addWidget(self._rec_btn)
 
-        self.start_button.clicked.connect(self.on_start)
-        self.stop_button.clicked.connect(self.on_stop)
-        self.export_button.clicked.connect(self.on_export_metrics)
-        self.post_process_btn.clicked.connect(self._open_video_processor)
-        self.hotkey_input.editingFinished.connect(self._register_hotkey_listener)
+    # ── Slots ─────────────────────────────────────────────────────────────────
 
-        # Form Layout
-        form = QFormLayout()
-        form.addRow("Participant ID *", self.participant_input)
-        form.addRow("Task", self.task_input)
-        form.addRow("Session #", self.session_input)
-        
-        root_layout = QHBoxLayout()
-        root_layout.addWidget(self.session_root_input)
-        root_layout.addWidget(self.browse_button)
-        form.addRow("Storage Folder", root_layout)
+    def _toggle_recording(self) -> None:
+        if self._state.is_recording:
+            self.on_stop()
+        else:
+            self.on_start()
 
-        form.addRow("Recording FPS", self.fps_input)
-        form.addRow("Stop Hotkey", self.hotkey_input)
-        form.addRow("Privacy", self.privacy_checkbox)
-
-        # Eye Tracker Settings Group
-        eye_group = QGroupBox("Pupil Labs Eye Tracker Settings")
-        eye_form = QFormLayout(eye_group)
-        eye_form.addRow("Connection Mode", self.pupil_mode_combo)
-        eye_form.addRow("Remote IP", self.pupil_ip_input)
-        eye_form.addRow("ZMQ Port", self.pupil_port_input)
-
-        btn_box = QHBoxLayout()
-        btn_box.addWidget(self.start_button)
-        btn_box.addWidget(self.stop_button)
-
-        status_box = QGroupBox("Session Status & Analysis")
-        status_layout = QVBoxLayout(status_box)
-        status_layout.addWidget(self.status_label)
-        status_layout.addWidget(self.export_button)
-        status_layout.addWidget(self.post_process_btn)
-
-        layout = QVBoxLayout(self)
-        layout.addLayout(form)
-        layout.addWidget(eye_group)
-        layout.addLayout(btn_box)
-        layout.addWidget(status_box)
-
-        self.setWindowTitle("Usability Testing Recorder (Phase 1)")
-        self.resize(480, 400)
-
-        self._load_config()
-        self._register_hotkey_listener()
-
-    def _open_video_processor(self) -> None:
-        if self._video_processor_window is None:
-            self._video_processor_window = VideoProcessorWindow()
-        self._video_processor_window.show()
-        self._video_processor_window.activateWindow()
-
-    def _browse_session_root(self) -> None:
-        directory = QFileDialog.getExistingDirectory(self, "Select Session Storage Directory")
-        if directory:
-            self.session_root_input.setText(directory)
+    def _open_panel(self) -> None:
+        webbrowser.open(f"http://127.0.0.1:{self._server.port}")
 
     def on_start(self) -> None:
-        participant_id = self.participant_input.text().strip()
-        task_label = self.task_input.text().strip()
-        session_label = self.session_input.text().strip()
+        cfg = self._state.config
+        participant_id = cfg.get("participant_id", "").strip()
+
         if not participant_id:
-            QMessageBox.warning(self, "Missing Participant ID", "Please enter a valid Participant ID before starting.")
+            self._open_panel()
+            QMessageBox.warning(
+                self,
+                "Participant ID Required",
+                "Please fill in the Participant ID in the Settings Panel\n"
+                "(⚙ button) before starting the recording.",
+            )
             return
 
         try:
-            fps = self.fps_input.value()
-            full_key_logging = not self.privacy_checkbox.isChecked()
-            pupil_mode = self.pupil_mode_combo.currentData()
-            pupil_ip = self.pupil_ip_input.text().strip() or "127.0.0.1"
-            pupil_port = self.pupil_port_input.value()
-            
-            # Update controller session root
-            self.controller.session_root = Path(self.session_root_input.text().strip() or "sessions")
+            tracking_mode    = cfg.get("tracking_mode", "disabled")
+            web_tracker_port = int(cfg.get("web_tracker_port", 9877))
+
+            if tracking_mode == "web":
+                self._ensure_web_tracker(web_tracker_port)
+
+            self.controller.session_root = Path(cfg.get("session_root", "sessions"))
 
             metadata = self.controller.start_session(
-                participant_id,
-                task_label,
-                session_label,
-                fps=fps,
-                full_key_logging=full_key_logging,
-                pupil_mode=pupil_mode,
-                pupil_ip=pupil_ip,
-                pupil_port=pupil_port,
+                participant_id  = participant_id,
+                task_label      = cfg.get("task_label", ""),
+                session         = cfg.get("session_label", ""),
+                fps             = int(cfg.get("fps", 15)),
+                full_key_logging= not cfg.get("privacy_mode", False),
+                pupil_mode      = cfg.get("pupil_mode", "zmq"),
+                pupil_ip        = cfg.get("pupil_ip", "127.0.0.1"),
+                pupil_port      = int(cfg.get("pupil_port", 50020)),
+                tracking_mode   = tracking_mode,
+                web_tracker_port= web_tracker_port,
+                existing_web_tracker = self._web_tracker if tracking_mode == "web" else None,
             )
-            self._save_config()
 
-            pupil_info = metadata.get("pupil_trigger_details", {})
-            if pupil_info.get("recording_started"):
-                device_status = f"Eye Tracker Connected ({pupil_info.get('serial_number')})"
-            else:
-                device_status = "Eye Tracker Not Connected (Session Proceeding)"
+            session_dir = str(getattr(self.controller, "session_dir", ""))
+            self._state.set_recording(True, session_dir)
+            self._start_elapsed_timer()
 
-            self.status_label.setText(f"RECORDING | {device_status}")
-            self.status_label.setStyleSheet("font-weight: bold; font-size: 12px; color: #2e7d32;")
-            self.start_button.setEnabled(False)
-            self.stop_button.setEnabled(True)
+            self._rec_btn.setStyleSheet(self._BTN_REC)
+            self._rec_btn.setText("⏹   Stop Recording")
+            self._dot.setStyleSheet("color: #f85149; font-size: 11px;")
+            self._title.setStyleSheet("color: #f85149; font-size: 12px; font-weight: 600;")
+            self._update_status_label()
 
             self.showMinimized()
+
         except Exception as exc:
-            QMessageBox.critical(self, "Session Startup Error", f"Failed to start recording session:\n{exc}")
-            self.status_label.setText("Status: Startup Error")
-            self.status_label.setStyleSheet("font-weight: bold; font-size: 13px; color: #c62828;")
+            QMessageBox.critical(self, "Session Startup Error", str(exc))
 
     def on_stop(self) -> None:
-        if not self.stop_button.isEnabled():
+        if not self._state.is_recording:
             return
         try:
             summary = self.controller.stop_session()
-            metrics = summary.get("analysis_metrics", {})
-            duration_str = metrics.get("task_duration_formatted", "N/A")
-            clicks = metrics.get("total_clicks", 0)
+            self._state.set_recording(False)
+            self._state.set_last_summary(summary)
+            self._stop_elapsed_timer()
 
-            self.status_label.setText(f"Stopped | Duration: {duration_str} | Clicks: {clicks}")
-            self.status_label.setStyleSheet("font-weight: bold; font-size: 12px; color: #1565c0;")
-            self.start_button.setEnabled(True)
-            self.stop_button.setEnabled(False)
+            self._rec_btn.setStyleSheet(self._BTN_IDLE)
+            self._rec_btn.setText("▶   Start Recording")
+            self._dot.setStyleSheet("color: #484f58; font-size: 11px;")
+            self._title.setStyleSheet("color: #8b949e; font-size: 12px; font-weight: 600;")
+
+            metrics = summary.get("analysis_metrics", {})
+            dur = metrics.get("task_duration_formatted", "—")
+            clicks = metrics.get("total_clicks", 0)
+            self._status.setText(f"Last session: {dur} | {clicks} clicks")
+            self._status.setStyleSheet("color: #58a6ff; font-size: 11px;")
+
             self.showNormal()
             self.activateWindow()
 
-            QMessageBox.information(
-                self,
-                "Session Completed",
-                f"Session stopped cleanly.\nTask Duration: {duration_str}\nTotal Clicks: {clicks}\n\nFiles saved to:\n{self.controller.session_dir}",
-            )
         except Exception as exc:
-            QMessageBox.critical(self, "Session Stop Error", f"Error stopping session components:\n{exc}")
-            self.status_label.setText("Status: Stop Error")
-            self.status_label.setStyleSheet("font-weight: bold; font-size: 13px; color: #c62828;")
+            QMessageBox.critical(self, "Session Stop Error", str(exc))
 
-    def on_export_metrics(self) -> None:
-        try:
-            current_root = self.session_root_input.text().strip() or "sessions"
-            output_csv = batch_analyze_sessions(current_root, "sessions_summary.csv")
-            QMessageBox.information(
-                self,
-                "Metrics Exported",
-                f"Consolidated usability metrics summary exported successfully to:\n{output_csv}",
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Export Error", f"Failed to export metrics summary CSV:\n{exc}")
+    # ── Elapsed Timer ─────────────────────────────────────────────────────────
 
-    def _register_hotkey_listener(self) -> None:
+    def _start_elapsed_timer(self) -> None:
+        self._elapsed_seconds = 0
+        self._elapsed_timer = QTimer(self)
+        self._elapsed_timer.timeout.connect(self._tick_elapsed)
+        self._elapsed_timer.start(1000)
+
+    def _stop_elapsed_timer(self) -> None:
+        if self._elapsed_timer:
+            self._elapsed_timer.stop()
+            self._elapsed_timer = None
+
+    def _tick_elapsed(self) -> None:
+        self._elapsed_seconds += 1
+        self._update_status_label()
+
+    def _update_status_label(self) -> None:
+        cfg = self._state.config
+        pid = cfg.get("participant_id", "—")
+        s   = self._elapsed_seconds
+        h, m, sec = s // 3600, (s % 3600) // 60, s % 60
+        elapsed = f"{h:02d}:{m:02d}:{sec:02d}"
+        self._status.setText(f"● REC  {elapsed}   |   {pid}")
+        self._status.setStyleSheet("color: #f85149; font-size: 11px; font-weight: 600;")
+
+    # ── Poll (actions from web panel) ─────────────────────────────────────────
+
+    def _poll(self) -> None:
+        actions = self._state.poll_pending_actions()
+        if actions.get("open_video_processor"):
+            self._open_video_processor()
+
+    # ── Web Tracker ───────────────────────────────────────────────────────────
+
+    def _ensure_web_tracker(self, port: int) -> None:
+        if self._web_tracker and self._web_tracker.port == port:
+            return
+        if self._web_tracker:
+            try:
+                self._web_tracker.stop_server()
+            except Exception:
+                pass
+        self._web_tracker = WebTracker(port=port)
+        self._web_tracker.start_server()
+
+    def _apply_saved_tracking(self) -> None:
+        cfg = self._state.config
+        if cfg.get("tracking_mode") == "web":
+            self._ensure_web_tracker(int(cfg.get("web_tracker_port", 9877)))
+
+    # ── Video Processor ───────────────────────────────────────────────────────
+
+    def _open_video_processor(self) -> None:
+        if VideoProcessorWindow is None:
+            return
+        if self._video_proc_win is None:
+            self._video_proc_win = VideoProcessorWindow()
+        self._video_proc_win.show()
+        self._video_proc_win.activateWindow()
+
+    # ── Hotkey ────────────────────────────────────────────────────────────────
+
+    def _register_hotkey(self, hotkey_str: str) -> None:
         if self._hotkey_listener is not None:
             try:
                 self._hotkey_listener.stop()
@@ -275,61 +341,28 @@ class SessionWindow(QWidget):
                 pass
             self._hotkey_listener = None
 
-        if pynput_keyboard is None:
+        if not pynput_keyboard or not hotkey_str.strip():
             return
-
-        raw_hotkey = self.hotkey_input.text().strip()
-        if not raw_hotkey:
-            return
-
         try:
-            parsed_hotkey = parse_hotkey_to_pynput(raw_hotkey)
+            parsed = _parse_hotkey(hotkey_str)
             self._hotkey_listener = pynput_keyboard.GlobalHotKeys(
-                {parsed_hotkey: self._on_hotkey_triggered}
+                {parsed: lambda: self.stop_requested.emit()}
             )
             self._hotkey_listener.start()
         except Exception as exc:
-            print(f"Warning: Failed to register hotkey '{raw_hotkey}': {exc}")
+            print(f"[Hotkey] Could not register '{hotkey_str}': {exc}")
 
-    def _on_hotkey_triggered(self) -> None:
-        self.stop_requested.emit()
+    # ── Close ─────────────────────────────────────────────────────────────────
 
-    def _save_config(self) -> None:
-        config_path = Path("config.json")
-        payload = {
-            "hotkey": self.hotkey_input.text().strip(),
-            "fps": self.fps_input.value(),
-            "privacy_mode": self.privacy_checkbox.isChecked(),
-            "pupil_mode": self.pupil_mode_combo.currentData(),
-            "pupil_ip": self.pupil_ip_input.text().strip(),
-            "pupil_port": self.pupil_port_input.value(),
-            "session_root": self.session_root_input.text().strip(),
-        }
-        config_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
-    def _load_config(self) -> None:
-        config_path = Path("config.json")
-        if config_path.exists():
+    def closeEvent(self, event) -> None:
+        if self._web_tracker:
             try:
-                payload = json.loads(config_path.read_text(encoding="utf-8"))
-                hotkey = payload.get("hotkey", "Ctrl+Alt+F9")
-                fps = int(payload.get("fps", 15))
-                privacy_mode = bool(payload.get("privacy_mode", False))
-                pupil_mode = payload.get("pupil_mode", "zmq")
-                pupil_ip = payload.get("pupil_ip", "127.0.0.1")
-                pupil_port = int(payload.get("pupil_port", 50020))
-                session_root = payload.get("session_root", "sessions")
-
-                self.hotkey_input.setText(hotkey)
-                self.fps_input.setValue(max(1, min(120, fps)))
-                self.privacy_checkbox.setChecked(privacy_mode)
-                self.session_root_input.setText(session_root)
-
-                idx = self.pupil_mode_combo.findData(pupil_mode)
-                if idx >= 0:
-                    self.pupil_mode_combo.setCurrentIndex(idx)
-                self.pupil_ip_input.setText(pupil_ip)
-                self.pupil_port_input.setValue(max(1024, min(65535, pupil_port)))
+                self._web_tracker.stop_server()
             except Exception:
-                self.hotkey_input.setText("Ctrl+Alt+F9")
-                self.fps_input.setValue(15)
+                pass
+        if self._hotkey_listener:
+            try:
+                self._hotkey_listener.stop()
+            except Exception:
+                pass
+        super().closeEvent(event)

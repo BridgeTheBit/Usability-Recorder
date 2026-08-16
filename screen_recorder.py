@@ -67,6 +67,7 @@ class ScreenRecorder:
         self.t0 = t0
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         self._stop_event.clear()
+        # Preliminary timestamp — will be updated below once we know the true start
         self._first_frame_timestamp_s = time.monotonic() - self.t0
 
         ffmpeg_success = False
@@ -79,10 +80,13 @@ class ScreenRecorder:
                 if self._process is not None and self._process.poll() is None:
                     self._using_ffmpeg = True
                     ffmpeg_success = True
-                    print("[ScreenRecorder] ffmpeg process started successfully.")
+                    # Update timestamp AFTER confirming ffmpeg is running — this captures
+                    # the true recording-start offset including ffmpeg initialization.
+                    self._first_frame_timestamp_s = time.monotonic() - self.t0
+                    print(f"[ScreenRecorder] ffmpeg started. first_frame_timestamp_s={self._first_frame_timestamp_s:.4f}s")
                 else:
                     exit_code = self._process.poll() if self._process else "unknown"
-                    print(f"[ScreenRecorder] ffmpeg process exited immediately with code {exit_code}. Falling back to mss/OpenCV.")
+                    print(f"[ScreenRecorder] ffmpeg exited immediately (code {exit_code}). Falling back to mss/OpenCV.")
                     self._process = None
             except Exception as exc:
                 print(f"[ScreenRecorder] ffmpeg startup error: {exc}. Falling back to mss/OpenCV.")
@@ -92,6 +96,8 @@ class ScreenRecorder:
             if mss is not None and cv2 is not None:
                 print("[ScreenRecorder] Using mss + OpenCV fallback.")
                 self._using_ffmpeg = False
+                # Set timestamp right before capturing starts (mss starts immediately)
+                self._first_frame_timestamp_s = time.monotonic() - self.t0
                 self._start_mss_fallback()
             else:
                 raise RuntimeError(

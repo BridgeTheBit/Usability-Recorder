@@ -11,6 +11,8 @@ from analyzer import SessionAnalyzer, batch_analyze_sessions
 from input_logger import InputLogger
 from pupil_trigger import PupilTrigger
 from screen_recorder import ScreenRecorder
+from window_tracker import WindowTracker
+from web_tracker import WebTracker
 
 
 class SessionController:
@@ -26,6 +28,8 @@ class SessionController:
         self.input_logger: Optional[InputLogger] = None
         self.screen_recorder: Optional[ScreenRecorder] = None
         self.pupil_trigger: Optional[PupilTrigger] = None
+        self.window_tracker: Optional[WindowTracker] = None
+        self.web_tracker: Optional[WebTracker] = None
         self.session_dir: Optional[Path] = None
         self.metadata: dict = {}
         self.logger: Optional[logging.Logger] = None
@@ -40,6 +44,9 @@ class SessionController:
         pupil_mode: str = "zmq",
         pupil_ip: str = "127.0.0.1",
         pupil_port: int = 50020,
+        tracking_mode: str = "disabled",
+        web_tracker_port: int = 9877,
+        existing_web_tracker: Optional["WebTracker"] = None,
     ) -> dict:
         """
         Initialize session directory, capture t0 monotonic reference, and launch all recording streams.
@@ -70,6 +77,8 @@ class SessionController:
             "pupil_port": pupil_port,
             "pupil_offset_estimate_s": None,
             "device_serial_number": None,
+            "tracking_mode": tracking_mode,
+            "web_tracker_port": web_tracker_port,
             "output_files": [],
         }
 
@@ -105,7 +114,38 @@ class SessionController:
         self.metadata["device_serial_number"] = pupil_meta.get("serial_number")
         self.metadata["pupil_trigger_details"] = pupil_meta
 
-        self.metadata["output_files"] = [
+        # 4. Window / Web Tracker
+        window_switches_path = self.session_dir / "window_switches.csv"
+        web_visits_path = self.session_dir / "web_page_visits.csv"
+
+        if tracking_mode == "windows":
+            self.window_tracker = WindowTracker(str(window_switches_path))
+            self.window_tracker.start(self.t0)
+            self.logger.info("Window tracker started -> window_switches.csv")
+            self.metadata["output_files"].append(str(window_switches_path.resolve()))
+        elif tracking_mode == "web":
+            if existing_web_tracker is not None:
+                # Use the already-running persistent server from the GUI
+                self.web_tracker = existing_web_tracker
+                self.web_tracker.start_recording(self.t0, str(web_visits_path))
+                self.logger.info(
+                    "Web tracker recording started (existing server on port %d) -> web_page_visits.csv",
+                    existing_web_tracker.port,
+                )
+            else:
+                # Fallback: create a new server (legacy / standalone usage)
+                self.web_tracker = WebTracker(port=web_tracker_port, logger=self.logger)
+                self.web_tracker.start_server()
+                self.web_tracker.start_recording(self.t0, str(web_visits_path))
+                self.logger.info(
+                    "Web tracker server + recording started on port %d -> web_page_visits.csv",
+                    web_tracker_port,
+                )
+            self.metadata["output_files"].append(str(web_visits_path.resolve()))
+        else:
+            self.logger.info("Window/Web tracking disabled.")
+
+        self.metadata["output_files"] += [
             str(events_path.resolve()),
             str(screen_path.resolve()),
         ]
@@ -126,6 +166,38 @@ class SessionController:
             self.screen_recorder.stop()
             if self.logger is not None:
                 self.logger.info("Screen recorder stopped and file finalized.")
+
+        window_summary = {}
+        if self.window_tracker is not None:
+            window_summary = self.window_tracker.stop()
+            self.metadata["window_switch_summary"] = {
+                "total_window_switches": window_summary.get("total_window_switches", 0),
+                "unique_windows_visited": window_summary.get("unique_windows_visited", 0),
+                "unique_window_names": window_summary.get("unique_window_names", []),
+            }
+            if self.logger is not None:
+                self.logger.info(
+                    "Window tracker stopped (switches=%d, unique=%d).",
+                    window_summary.get("total_window_switches", 0),
+                    window_summary.get("unique_windows_visited", 0),
+                )
+
+        if self.web_tracker is not None:
+            # stop_recording() deactivates capture but keeps the WS server alive
+            web_summary = self.web_tracker.stop_recording()
+            self.metadata["web_visit_summary"] = {
+                "total_page_visits": web_summary.get("total_page_visits", 0),
+                "unique_urls_visited": web_summary.get("unique_urls_visited", 0),
+                "unique_domains_visited": web_summary.get("unique_domains_visited", 0),
+                "unique_domain_names": web_summary.get("unique_domain_names", []),
+            }
+            if self.logger is not None:
+                self.logger.info(
+                    "Web tracker recording stopped (visits=%d, unique_domains=%d).",
+                    web_summary.get("total_page_visits", 0),
+                    web_summary.get("unique_domains_visited", 0),
+                )
+            # Do NOT call stop_server() here — GUI manages the persistent server
 
         pupil_meta = {}
         if self.pupil_trigger is not None:

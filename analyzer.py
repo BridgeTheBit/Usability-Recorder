@@ -18,6 +18,8 @@ class SessionAnalyzer:
         self.session_dir = Path(session_dir)
         self.metadata_path = self.session_dir / "session_metadata.json"
         self.events_path = self.session_dir / "events.csv"
+        self.window_switches_path = self.session_dir / "window_switches.csv"
+        self.web_visits_path = self.session_dir / "web_page_visits.csv"
 
     def analyze(self) -> Dict[str, Any]:
         """Perform analysis on the session directory and save analysis.json."""
@@ -138,6 +140,66 @@ class SessionAnalyzer:
             "privacy_mode": not metadata.get("full_key_logging", True),
         }
 
+        # Window switch metrics
+        window_switches = self._load_window_switches()
+        # Subtract 1 because the first entry is the initial window (not a switch)
+        total_switches = max(len(window_switches) - 1, 0)
+        unique_windows = set()
+        for sw in window_switches:
+            key = sw.get("process_name") or sw.get("window_title", "")
+            if key:
+                unique_windows.add(key)
+
+        analysis_results["total_window_switches"] = total_switches
+        analysis_results["unique_windows_visited"] = len(unique_windows)
+        analysis_results["unique_window_names"] = sorted(unique_windows)
+        if task_duration_s > 0:
+            analysis_results["window_switches_per_minute"] = round(
+                total_switches / duration_minutes, 2
+            )
+        else:
+            analysis_results["window_switches_per_minute"] = 0.0
+
+        # Web page visit & click metrics
+        web_events = self._load_web_visits()
+        unique_web_urls: set = set()
+        unique_web_domains: set = set()
+        web_page_visits = []
+        web_element_clicks = []
+        for wv in web_events:
+            u = wv.get("url", "")
+            d = wv.get("domain", "")
+            if u:
+                unique_web_urls.add(u)
+            if d:
+                unique_web_domains.add(d)
+            if wv.get("event_type") == "element_click":
+                web_element_clicks.append(wv)
+            else:
+                web_page_visits.append(wv)
+
+        from collections import Counter
+        click_cats = Counter(
+            c.get("element_category", "other") for c in web_element_clicks
+        )
+
+        analysis_results["total_web_page_visits"]     = len(web_page_visits)
+        analysis_results["total_web_element_clicks"]  = len(web_element_clicks)
+        analysis_results["web_click_by_category"]     = dict(click_cats)
+        analysis_results["unique_web_urls_visited"]   = len(unique_web_urls)
+        analysis_results["unique_web_domains_visited"]= len(unique_web_domains)
+        analysis_results["unique_web_domain_names"]   = sorted(unique_web_domains)
+        if task_duration_s > 0:
+            analysis_results["web_visits_per_minute"] = round(
+                len(web_page_visits) / duration_minutes, 2
+            )
+            analysis_results["web_clicks_per_minute"] = round(
+                len(web_element_clicks) / duration_minutes, 2
+            )
+        else:
+            analysis_results["web_visits_per_minute"] = 0.0
+            analysis_results["web_clicks_per_minute"] = 0.0
+
         self._save_analysis_json(analysis_results)
         return analysis_results
 
@@ -179,6 +241,34 @@ class SessionAnalyzer:
         with output_path.open("w", encoding="utf-8") as f:
             json.dump(results, f, indent=2)
 
+    def _load_web_visits(self) -> List[Dict[str, Any]]:
+        """Load web_page_visits.csv if it exists."""
+        if not self.web_visits_path.exists():
+            return []
+        visits = []
+        try:
+            with self.web_visits_path.open("r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    visits.append(row)
+        except Exception:
+            pass
+        return visits
+
+    def _load_window_switches(self) -> List[Dict[str, Any]]:
+        """Load window_switches.csv if it exists."""
+        if not self.window_switches_path.exists():
+            return []
+        switches = []
+        try:
+            with self.window_switches_path.open("r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    switches.append(row)
+        except Exception:
+            pass
+        return switches
+
 
 def batch_analyze_sessions(
     sessions_root: str | Path = "sessions",
@@ -219,6 +309,15 @@ def batch_analyze_sessions(
         "estimated_mouse_distance_px",
         "mouse_moves_count",
         "mouse_scrolls_count",
+        "total_window_switches",
+        "unique_windows_visited",
+        "window_switches_per_minute",
+        "total_web_page_visits",
+        "total_web_element_clicks",
+        "web_clicks_per_minute",
+        "unique_web_urls_visited",
+        "unique_web_domains_visited",
+        "web_visits_per_minute",
         "pupil_connected",
         "session_folder",
     ]

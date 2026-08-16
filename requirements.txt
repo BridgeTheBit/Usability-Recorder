@@ -4,3 +4,4 @@ PySide6>=6.7.0
 mss>=9.0.0
 opencv-python>=4.10.0
 pyzmq>=25.0.0
+flask>=3.0.0

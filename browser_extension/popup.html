@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Usability Recorder — Web Tracker</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 280px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px;
+      color: #1a1a1a;
+      background: #f8f9fa;
+    }
+
+    header {
+      background: #1a3a5c;
+      color: white;
+      padding: 12px 14px 10px;
+    }
+    header h1 { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
+    header p  { font-size: 10px; opacity: 0.7; margin-top: 2px; }
+
+    .body { padding: 12px 14px; }
+
+    /* Status row */
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-bottom: 12px;
+    }
+    .dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .dot.connected    { background: #2e7d32; box-shadow: 0 0 0 3px rgba(46,125,50,.2); }
+    .dot.disconnected { background: #c62828; box-shadow: 0 0 0 3px rgba(198,40,40,.2); }
+    .dot.connecting   { background: #f57c00; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    #status-text { font-weight: 600; font-size: 12px; flex: 1; }
+    #status-sub  { font-size: 10px; color: #666; }
+
+    /* Port row */
+    .port-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .port-row label { font-size: 11px; color: #555; white-space: nowrap; }
+    .port-row input {
+      flex: 1;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 4px 7px;
+      font-size: 12px;
+      outline: none;
+    }
+    .port-row input:focus { border-color: #1a3a5c; }
+    .port-row button {
+      background: #1a3a5c;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 5px 9px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .port-row button:hover { background: #163252; }
+
+    /* Stats */
+    .stats {
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-bottom: 12px;
+    }
+    .stats h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #888; margin-bottom: 6px; }
+    .stat-item { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 3px; }
+    .stat-item span:last-child { font-weight: 600; }
+
+    /* Recent event */
+    .recent {
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 8px 10px;
+    }
+    .recent h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #888; margin-bottom: 6px; }
+    #recent-url  { font-size: 11px; color: #1a3a5c; word-break: break-all; margin-bottom: 2px; }
+    #recent-h1   { font-size: 11px; color: #333; font-style: italic; }
+    #recent-time { font-size: 10px; color: #aaa; margin-top: 3px; }
+
+    footer {
+      padding: 8px 14px;
+      border-top: 1px solid #e8e8e8;
+      font-size: 10px;
+      color: #999;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🔍 Usability Recorder</h1>
+    <p>Web Tracker Extension</p>
+  </header>
+
+  <div class="body">
+    <!-- Connection status -->
+    <div class="status-row">
+      <div class="dot connecting" id="dot"></div>
+      <div>
+        <div id="status-text">Connecting…</div>
+        <div id="status-sub">ws://localhost:<span id="port-display">9877</span></div>
+      </div>
+    </div>
+
+    <!-- Port configuration -->
+    <div class="port-row">
+      <label for="port-input">App Port:</label>
+      <input type="number" id="port-input" value="9877" min="1024" max="65535" />
+      <button id="set-port-btn">Apply</button>
+    </div>
+
+    <!-- Session stats -->
+    <div class="stats">
+      <h2>Session Stats</h2>
+      <div class="stat-item"><span>Page visits</span><span id="stat-visits">0</span></div>
+      <div class="stat-item"><span>Unique URLs</span><span id="stat-urls">0</span></div>
+      <div class="stat-item"><span>Unique domains</span><span id="stat-domains">0</span></div>
+    </div>
+
+    <!-- Most recent event -->
+    <div class="recent">
+      <h2>Last Page Visited</h2>
+      <div id="recent-url">—</div>
+      <div id="recent-h1"></div>
+      <div id="recent-time"></div>
+    </div>
+  </div>
+
+  <footer>Usability Recorder v1.0 · localhost only</footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

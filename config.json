@@ -1,9 +1,14 @@
 {
-  "hotkey": "c",
+  "participant_id": "P1",
+  "task_label": "",
+  "session_label": "",
+  "session_root": "D:/Mehran/Usability Recorder/sessions",
   "fps": 30,
+  "hotkey": "c",
   "privacy_mode": false,
+  "tracking_mode": "web",
+  "web_tracker_port": 9877,
   "pupil_mode": "disabled",
   "pupil_ip": "127.0.0.1",
-  "pupil_port": 50020,
-  "session_root": "D:/Mehran/Usability Recorder_2"
+  "pupil_port": 50020
 }
