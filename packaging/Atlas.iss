@@ -1,6 +1,6 @@
 #define AppName "Atlas"
 #ifndef AppVersion
-#define AppVersion "1.2.1"
+#define AppVersion "1.2.2"
 #endif
 #define AppPublisher "BridgeTheBit"
 #define AppExeName "Atlas.exe"

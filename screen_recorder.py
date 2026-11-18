@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import os
 import logging
-import shutil
 import signal
 import subprocess
-import sys
 import threading
 import time
 from pathlib import Path
@@ -13,6 +11,7 @@ from typing import Optional
 
 import numpy as np
 from pynput.mouse import Controller as MouseController
+from ffmpeg_utils import find_ffmpeg
 
 try:
     import cv2
@@ -57,29 +56,8 @@ class ScreenRecorder:
         return "ffmpeg" if self._using_ffmpeg else "opencv"
 
     def _find_ffmpeg(self) -> Optional[str]:
-        """Locate ffmpeg executable in system PATH or local project directory."""
-        which_path = shutil.which("ffmpeg")
-        if which_path:
-            return which_path
-
-        roots = [Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))]
-        if getattr(sys, "frozen", False):
-            roots.append(Path(sys.executable).resolve().parent)
-        candidates = [
-            root / subpath
-            for root in roots
-            for subpath in (
-                Path("ffmpeg/bin/ffmpeg.exe"),
-                Path("ffmpeg/ffmpeg.exe"),
-                Path("ffmpeg/bin/ffmpeg"),
-                Path("ffmpeg/ffmpeg"),
-            )
-        ]
-        for candidate in candidates:
-            if candidate.exists() and candidate.is_file():
-                return str(candidate.resolve())
-
-        return None
+        """Locate the FFmpeg executable in the install-local ffmpeg folder."""
+        return find_ffmpeg()
 
     def start(self, t0: float) -> None:
         """Start screen recording aligned with session monotonic clock t0."""

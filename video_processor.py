@@ -1,8 +1,9 @@
 import csv
 import json
+import subprocess
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from video_mux import finalize_video_with_audio
+from ffmpeg_utils import require_ffmpeg
 
 try:
     import cv2
@@ -126,16 +127,30 @@ class VideoProcessorThread(QThread):
             self.finished_processing.emit(False, "Processing cancelled by user.")
             return
 
-        self.status.emit("Finalizing video...")
+        self.status.emit("Muxing audio with FFmpeg...")
         self.progress.emit(95)
         try:
-            finalize_video_with_audio(temp_video, original_video, final_video, fps)
+            command = [
+                require_ffmpeg(), "-y",
+                "-i", str(temp_video),
+                "-i", str(original_video),
+                "-c:v", "libx264", "-preset", "ultrafast",
+                "-c:a", "copy",
+                "-map", "0:v:0", "-map", "1:a:0?",
+                str(final_video),
+            ]
+            subprocess.run(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+            )
             if temp_video.exists():
                 temp_video.unlink()
             self.progress.emit(100)
             self.finished_processing.emit(True, f"Video saved to:\n{final_video.name}")
         except Exception as e:
-            self.finished_processing.emit(False, f"Video finalization failed: {e}")
+            self.finished_processing.emit(False, f"FFmpeg failed: {e}")
 
 
     def _parse_clicks(self, events_csv: Path) -> List[Dict[str, Any]]:

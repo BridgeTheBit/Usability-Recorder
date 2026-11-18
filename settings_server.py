@@ -11,6 +11,7 @@ import csv
 import json
 import logging
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -19,8 +20,15 @@ from typing import Any, Dict, List, Optional
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
-from app_paths import get_app_data_dir, get_config_path, get_default_sessions_dir, resolve_user_path
-from video_mux import finalize_video_with_audio
+from app_paths import (
+    get_app_data_dir,
+    get_config_path,
+    get_default_sessions_dir,
+    get_legacy_app_data_dir,
+    is_frozen,
+    resolve_user_path,
+)
+from ffmpeg_utils import require_ffmpeg
 
 
 # ─── Video Processor (pure Python — no Qt) ───────────────────────────────────
@@ -210,14 +218,29 @@ class VideoProcessorRunner:
             self._done(False, "Cancelled by user")
             return
 
-        self._upd(progress=92, status="Finalizing video…")
+        self._upd(progress=92, status="Muxing audio with FFmpeg…")
         try:
-            finalize_video_with_audio(temp_video, original_video, final_video, fps)
+            ffmpeg = require_ffmpeg()
+            command = [
+                ffmpeg, "-y",
+                "-i", str(temp_video),
+                "-i", str(original_video),
+                "-c:v", "libx264", "-preset", "ultrafast",
+                "-c:a", "copy",
+                "-map", "0:v:0", "-map", "1:a:0?",
+                str(final_video),
+            ]
+            subprocess.run(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+            )
             if temp_video.exists():
                 temp_video.unlink()
             self._done(True, f"Done! Saved as: {final_video.name}")
         except Exception as exc:
-            self._done(False, f"Video finalization failed: {exc}")
+            self._done(False, f"FFmpeg failed: {exc}")
 
     @staticmethod
     def _parse_clicks(events_csv: Path, video_offset: float = 0.0) -> List[Dict[str, Any]]:
@@ -255,6 +278,44 @@ video_runner = VideoProcessorRunner()
 
 
 # ─── Shared Application State ────────────────────────────────────────────────
+
+def _same_path(first: str | Path, second: str | Path) -> bool:
+    try:
+        return os.path.normcase(str(Path(first).expanduser().resolve())) == os.path.normcase(
+            str(Path(second).expanduser().resolve())
+        )
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def _move_legacy_sessions(old_sessions: Path, new_sessions: Path) -> bool:
+    """Move the previous default session folder next to the new installation."""
+    if not old_sessions.is_dir() or _same_path(old_sessions, new_sessions):
+        return True
+
+    try:
+        items = list(old_sessions.iterdir())
+        new_sessions.mkdir(parents=True, exist_ok=True)
+        conflicts = [item.name for item in items if (new_sessions / item.name).exists()]
+        if conflicts:
+            logging.getLogger(__name__).warning(
+                "Could not move old sessions because the destination already contains: %s",
+                ", ".join(conflicts),
+            )
+            return False
+        for item in items:
+            destination = new_sessions / item.name
+            shutil.move(str(item), str(destination))
+        old_sessions.rmdir()
+        return True
+    except OSError as exc:
+        logging.getLogger(__name__).warning(
+            "Could not move old sessions from %s to %s: %s",
+            old_sessions,
+            new_sessions,
+            exc,
+        )
+        return False
 
 class AppState:
     """Thread-safe shared state between Flask server and the Qt GUI thread."""
@@ -295,14 +356,38 @@ class AppState:
     def _load_config_file(self) -> None:
         p = get_config_path()
         if not p.exists():
+            if is_frozen():
+                old_sessions = get_legacy_app_data_dir() / "sessions"
+                new_sessions = get_default_sessions_dir()
+                if old_sessions.exists() and not _move_legacy_sessions(old_sessions, new_sessions):
+                    with self._lock:
+                        self._config["session_root"] = str(old_sessions)
+                    self.save_config_file()
             return
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
+            save_migrated_config = False
+            old_sessions = get_legacy_app_data_dir() / "sessions"
+            session_root = data.get("session_root")
+            uses_legacy_default = (
+                not session_root
+                or _same_path(session_root, old_sessions)
+            )
+            if is_frozen() and uses_legacy_default:
+                new_sessions = get_default_sessions_dir()
+                session_root = (
+                    new_sessions
+                    if _move_legacy_sessions(old_sessions, new_sessions)
+                    else old_sessions
+                )
+                save_migrated_config = True
             with self._lock:
                 for k in self._CONFIG_DEFAULTS:
                     if k in data:
                         self._config[k] = data[k]
-                self._config["session_root"] = str(resolve_user_path(self._config["session_root"]))
+                self._config["session_root"] = str(resolve_user_path(session_root))
+            if save_migrated_config:
+                self.save_config_file()
         except Exception:
             pass
 

@@ -12,11 +12,12 @@ On a Windows x64 build machine, install Python 3.11 and Inno Setup 6, then run:
 py -3.11 -m venv .venv-build
 .\.venv-build\Scripts\python.exe -m pip install -r requirements-build.txt
 .\.venv-build\Scripts\pyinstaller.exe --noconfirm --clean packaging\Atlas.spec
+python packaging\bundle_ffmpeg.py
 New-Item -ItemType Directory -Force dist\installer | Out-Null
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\Atlas.iss
 ```
 
-The installer is written to `dist/installer/AtlasSetup-1.2.1-windows-x64.exe` by default. Tagged builds use the version from the tag.
+The FFmpeg executable is placed at `dist/Atlas/ffmpeg/ffmpeg.exe` and carried into the same relative path under the install folder. The installer is written to `dist/installer/AtlasSetup-1.2.2-windows-x64.exe` by default. Tagged builds use the version from the tag.
 
 ## Automated release build
 
@@ -25,5 +26,5 @@ manually. Pushing a version tag such as `v1.2.0` also attaches the installer to 
 
 ## Installed data
 
-Settings, session recordings, and analysis exports are written under `%LOCALAPPDATA%\Atlas`, not
-inside the installed program folder. Uninstalling Atlas leaves that user data intact.
+Settings, session recordings, and analysis exports are written under the `data` folder beside the
+installed program. If the install folder is on D:, application data is also stored on D:.

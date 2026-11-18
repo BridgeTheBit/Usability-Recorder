@@ -1,4 +1,4 @@
-# Atlas — Usability Recorder (v1.2.1)
+# Atlas — Usability Recorder (v1.2.2)
 
 A hybrid usability testing recorder combining a minimal desktop control widget (Qt/PySide6) with a modern local web administration panel (Flask + Vanilla HTML5/CSS3 SPA). It synchronizes screen recording, input events (mouse/keyboard), active OS windows, browser-specific page interactions (clicks, menus, buttons via extension), and Pupil Labs eye trackers under a single monotonic clock reference.
 
@@ -38,7 +38,7 @@ The application utilizes a distributed design for low CPU overhead:
 
 ## 📁 Session File Structure
 
-Each session creates a dedicated folder under `sessions/{participant_id}_{timestamp}/`. In the installed Windows app, sessions are stored under `%LOCALAPPDATA%\Atlas\sessions`; source runs store them in the project folder.
+Each session creates a dedicated folder under `sessions/{participant_id}_{timestamp}/`. In the installed Windows app, sessions and settings are stored under `<Atlas install folder>\data`; source runs store them in the project folder.
 
 ```
 sessions/P001_20260816_120000/
@@ -54,9 +54,9 @@ sessions/P001_20260816_120000/
 
 ## 🚀 Windows installation
 
-1. Download `AtlasSetup-1.2.1-windows-x64.exe` from [GitHub Releases](https://github.com/BridgeTheBit/Usability-Recorder/releases) and run it. It installs for the current Windows user and does not require Python, command-line setup, or administrator access.
-2. Launch **Atlas** from the Start menu. Settings, session recordings, and exports are kept under `%LOCALAPPDATA%\Atlas`; uninstalling the app leaves those files in place.
-3. Screen recording and click-overlay video processing work without a separate `ffmpeg.exe` installation. Atlas uses its bundled media libraries for processing and falls back to OpenCV for screen capture when a system FFmpeg executable is unavailable.
+1. Download `AtlasSetup-1.2.2-windows-x64.exe` from [GitHub Releases](https://github.com/BridgeTheBit/Usability-Recorder/releases) and run it. It installs for the current Windows user and does not require Python, command-line setup, or administrator access.
+2. Launch **Atlas** from the Start menu. Settings, recordings, and exports are kept in the `data` folder beside the installed app, so choosing D: stores them on D:. Existing default session data is moved from the previous `%LOCALAPPDATA%\Atlas\sessions` location on first launch.
+3. The installer places FFmpeg at `<Atlas install folder>\ffmpeg\ffmpeg.exe`. Atlas uses that executable for screen recording and click-overlay processing; no separate FFmpeg install or PATH setup is needed.
 
 Browser tracking is optional. The installer includes the extension and a **Browser extension setup** shortcut. Chrome and Edge require the user to approve an unpacked extension once; no browser extension can be silently enabled by a normal desktop installer. The extension can be skipped when browser tracking is not needed.
 
@@ -82,6 +82,11 @@ For instructions to build the Windows installer, see [packaging/README.md](packa
 ---
 
 ## 📋 Version History (Changelog)
+
+### v1.2.2 - Install-local FFmpeg and data paths
+- Bundled FFmpeg at `<install folder>\ffmpeg\ffmpeg.exe` and use that path for recording and video processing.
+- Store settings, sessions, and exports under `<install folder>\data` so their drive follows the chosen install location.
+- Migrate settings and the previous default sessions folder on first launch.
 
 ### v1.2.1 - Standalone video processing
 - Removed the post-processing requirement for a separately installed FFmpeg executable.
