@@ -37,7 +37,7 @@ jobs:
           $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           $version = "1.2.0"
           if ("${{ github.ref_name }}" -match '^v(\d+\.\d+\.\d+)$') { $version = $Matches[1] }
-          & $compiler "--define=AppVersion=$version" packaging/Atlas.iss
+          & $compiler "/DAppVersion=$version" packaging/Atlas.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload installer artifact
