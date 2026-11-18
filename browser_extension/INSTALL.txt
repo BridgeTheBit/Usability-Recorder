@@ -1,0 +1,13 @@
+ATLAS BROWSER EXTENSION
+
+The browser extension is optional. It is only needed when Browser Tracking is enabled in Atlas.
+
+Chrome or Edge setup:
+1. Open chrome://extensions or edge://extensions.
+2. Turn on Developer mode.
+3. Choose Load unpacked.
+4. Select this browser_extension folder inside the Atlas installation folder.
+5. Keep Atlas open and enable Browser Tracking in its settings.
+
+Atlas records browser activity only while a recording session is active. The extension connects
+to the local Atlas application on this computer; it does not upload events to a remote server.

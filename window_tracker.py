@@ -101,6 +101,9 @@ class WindowTracker:
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
+            if self._thread.is_alive():
+                raise RuntimeError("The window-tracking thread did not stop within 2 seconds.")
+            self._thread = None
 
         return self.get_summary()
 

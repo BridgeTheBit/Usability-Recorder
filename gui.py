@@ -10,6 +10,7 @@ web panel served by settings_server.py.
 """
 from __future__ import annotations
 
+import re
 import webbrowser
 from pathlib import Path
 from typing import Optional
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app_paths import get_default_sessions_dir
 from settings_server import AppState, SettingsServer, app_state, settings_server
 from web_tracker import WebTracker
 
@@ -34,29 +36,39 @@ try:
 except Exception:
     pynput_keyboard = None
 
-try:
-    from video_processor import VideoProcessorWindow
-except Exception:
-    VideoProcessorWindow = None
-
-
 def _parse_hotkey(hotkey_str: str) -> str:
-    parts = [p.strip().lower() for p in hotkey_str.split("+") if p.strip()]
-    out = []
-    for p in parts:
-        if p in ("ctrl", "control"):
-            out.append("<ctrl>")
-        elif p == "alt":
-            out.append("<alt>")
-        elif p == "shift":
-            out.append("<shift>")
-        elif p in ("cmd", "win", "super"):
-            out.append("<cmd>")
-        elif p.startswith("f") and p[1:].isdigit():
-            out.append(f"<{p}>")
-        else:
-            out.append(p)
-    return "+".join(out)
+    if not isinstance(hotkey_str, str) or not hotkey_str.strip():
+        raise ValueError("Hotkey cannot be empty.")
+
+    parts = [part.strip().lower() for part in hotkey_str.split("+")]
+    if any(not part for part in parts):
+        raise ValueError("Use a format such as Ctrl+Alt+F9.")
+
+    modifier_names = {
+        "ctrl": "<ctrl>", "control": "<ctrl>", "alt": "<alt>",
+        "shift": "<shift>", "cmd": "<cmd>", "win": "<cmd>", "super": "<cmd>",
+    }
+    modifiers = [modifier_names[part] for part in parts if part in modifier_names]
+    keys = [part for part in parts if part not in modifier_names]
+    if not modifiers:
+        raise ValueError("A hotkey must include at least one modifier, such as Ctrl or Alt.")
+    if len(set(modifiers)) != len(modifiers):
+        raise ValueError("A modifier can only appear once in a hotkey.")
+    if len(keys) != 1:
+        raise ValueError("A hotkey must include exactly one key after its modifiers.")
+
+    key = keys[0]
+    function_key = re.fullmatch(r"f(\d{1,2})", key)
+    if function_key:
+        number = int(function_key.group(1))
+        if not 1 <= number <= 24:
+            raise ValueError("Function keys must be between F1 and F24.")
+        key = f"<f{number}>"
+    elif len(key) == 1 and key.isprintable() and not key.isspace() and key != "+":
+        pass
+    else:
+        raise ValueError("Use one letter, number, or function key such as F9.")
+    return "+".join([*modifiers, key])
 
 
 # ─── Minimal Recording Widget ─────────────────────────────────────────────────
@@ -118,8 +130,8 @@ class RecorderWidget(QWidget):
         self._server: SettingsServer = settings_server
 
         self._web_tracker: Optional[WebTracker] = None
-        self._video_proc_win = None
         self._hotkey_listener = None
+        self._configured_hotkey: Optional[str] = None
         self._elapsed_timer: Optional[QTimer] = None
         self._elapsed_seconds = 0
 
@@ -137,7 +149,7 @@ class RecorderWidget(QWidget):
     # ── UI Construction ───────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        self.setWindowTitle("Usability Recorder")
+        self.setWindowTitle("Atlas — Usability Recorder")
         self.setFixedSize(360, 130)
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
         self.setStyleSheet(self._WINDOW_STYLE)
@@ -213,7 +225,7 @@ class RecorderWidget(QWidget):
             if tracking_mode == "web":
                 self._ensure_web_tracker(web_tracker_port)
 
-            self.controller.session_root = Path(cfg.get("session_root", "sessions"))
+            self.controller.session_root = Path(cfg.get("session_root", get_default_sessions_dir()))
 
             metadata = self.controller.start_session(
                 participant_id  = participant_id,
@@ -221,7 +233,7 @@ class RecorderWidget(QWidget):
                 session         = cfg.get("session_label", ""),
                 fps             = int(cfg.get("fps", 15)),
                 full_key_logging= not cfg.get("privacy_mode", False),
-                pupil_mode      = cfg.get("pupil_mode", "zmq"),
+                pupil_mode      = cfg.get("pupil_mode", "disabled"),
                 pupil_ip        = cfg.get("pupil_ip", "127.0.0.1"),
                 pupil_port      = int(cfg.get("pupil_port", 50020)),
                 tracking_mode   = tracking_mode,
@@ -230,7 +242,7 @@ class RecorderWidget(QWidget):
             )
 
             session_dir = str(getattr(self.controller, "session_dir", ""))
-            self._state.set_recording(True, session_dir)
+            self._state.set_recording(True, session_dir, metadata.get("t0_monotonic"))
             self._start_elapsed_timer()
 
             self._rec_btn.setStyleSheet(self._BTN_REC)
@@ -247,28 +259,37 @@ class RecorderWidget(QWidget):
     def on_stop(self) -> None:
         if not self._state.is_recording:
             return
+        summary = None
+        stop_error = None
         try:
             summary = self.controller.stop_session()
+        except Exception as exc:
+            stop_error = exc
+        finally:
             self._state.set_recording(False)
-            self._state.set_last_summary(summary)
             self._stop_elapsed_timer()
-
             self._rec_btn.setStyleSheet(self._BTN_IDLE)
             self._rec_btn.setText("▶   Start Recording")
             self._dot.setStyleSheet("color: #484f58; font-size: 11px;")
             self._title.setStyleSheet("color: #8b949e; font-size: 12px; font-weight: 600;")
 
-            metrics = summary.get("analysis_metrics", {})
-            dur = metrics.get("task_duration_formatted", "—")
-            clicks = metrics.get("total_clicks", 0)
-            self._status.setText(f"Last session: {dur} | {clicks} clicks")
-            self._status.setStyleSheet("color: #58a6ff; font-size: 11px;")
+        if stop_error is not None:
+            self._status.setText("Session stopped with an error")
+            self._status.setStyleSheet("color: #f85149; font-size: 11px;")
+            QMessageBox.critical(self, "Session Stop Error", str(stop_error))
+            return
 
-            self.showNormal()
-            self.activateWindow()
-
-        except Exception as exc:
-            QMessageBox.critical(self, "Session Stop Error", str(exc))
+        self._state.set_last_summary(summary)
+        metrics = summary.get("analysis_metrics", {})
+        dur = metrics.get("task_duration_formatted", "—")
+        clicks = metrics.get("total_clicks", 0)
+        self._status.setText(f"Last session: {dur} | {clicks} clicks")
+        self._status.setStyleSheet("color: #58a6ff; font-size: 11px;")
+        self.showNormal()
+        self.activateWindow()
+        cleanup_errors = summary.get("cleanup_errors", [])
+        if cleanup_errors:
+            QMessageBox.warning(self, "Session Saved With Issues", "\n".join(cleanup_errors))
 
     # ── Elapsed Timer ─────────────────────────────────────────────────────────
 
@@ -299,70 +320,108 @@ class RecorderWidget(QWidget):
     # ── Poll (actions from web panel) ─────────────────────────────────────────
 
     def _poll(self) -> None:
-        actions = self._state.poll_pending_actions()
-        if actions.get("open_video_processor"):
-            self._open_video_processor()
+        hotkey = self._state.config.get("hotkey", "Ctrl+Alt+F9")
+        if hotkey != self._configured_hotkey:
+            self._register_hotkey(hotkey)
 
     # ── Web Tracker ───────────────────────────────────────────────────────────
 
     def _ensure_web_tracker(self, port: int) -> None:
-        if self._web_tracker and self._web_tracker.port == port:
+        if self._web_tracker and self._web_tracker.port == port and self._web_tracker.is_server_running:
             return
         if self._web_tracker:
             try:
                 self._web_tracker.stop_server()
             except Exception:
                 pass
-        self._web_tracker = WebTracker(port=port)
-        self._web_tracker.start_server()
+        tracker = WebTracker(port=port)
+        tracker.start_server()
+        self._web_tracker = tracker
 
     def _apply_saved_tracking(self) -> None:
         cfg = self._state.config
         if cfg.get("tracking_mode") == "web":
-            self._ensure_web_tracker(int(cfg.get("web_tracker_port", 9877)))
-
-    # ── Video Processor ───────────────────────────────────────────────────────
-
-    def _open_video_processor(self) -> None:
-        if VideoProcessorWindow is None:
-            return
-        if self._video_proc_win is None:
-            self._video_proc_win = VideoProcessorWindow()
-        self._video_proc_win.show()
-        self._video_proc_win.activateWindow()
+            try:
+                self._ensure_web_tracker(int(cfg.get("web_tracker_port", 9877)))
+            except Exception as exc:
+                self._status.setText(f"Web tracking unavailable: {exc}")
+                self._status.setStyleSheet("color: #d29922; font-size: 11px;")
 
     # ── Hotkey ────────────────────────────────────────────────────────────────
 
     def _register_hotkey(self, hotkey_str: str) -> None:
-        if self._hotkey_listener is not None:
-            try:
-                self._hotkey_listener.stop()
-            except Exception:
-                pass
-            self._hotkey_listener = None
-
-        if not pynput_keyboard or not hotkey_str.strip():
+        if not isinstance(hotkey_str, str):
+            hotkey_str = ""
+        self._configured_hotkey = hotkey_str
+        if not hotkey_str.strip():
+            self._stop_hotkey_listener()
+            if not self._state.is_recording:
+                self._status.setText("Stop shortcut disabled — use the Stop button")
+                self._status.setToolTip("")
             return
+        if not pynput_keyboard:
+            print("[Hotkey] Global hotkeys are unavailable because pynput could not be loaded.")
+            if not self._state.is_recording:
+                self._status.setText("Keyboard shortcut unavailable — use the Stop button")
+            return
+
         try:
             parsed = _parse_hotkey(hotkey_str)
-            self._hotkey_listener = pynput_keyboard.GlobalHotKeys(
+            listener = pynput_keyboard.GlobalHotKeys(
                 {parsed: lambda: self.stop_requested.emit()}
             )
-            self._hotkey_listener.start()
+            listener.start()
         except Exception as exc:
             print(f"[Hotkey] Could not register '{hotkey_str}': {exc}")
+            if not self._state.is_recording:
+                self._status.setText("Shortcut not applied — the previous shortcut is still active")
+                self._status.setToolTip(str(exc))
+            return
+
+        previous_listener = self._hotkey_listener
+        self._hotkey_listener = listener
+        if previous_listener is not None:
+            try:
+                previous_listener.stop()
+                previous_listener.join(timeout=1.0)
+            except Exception:
+                pass
+        if not self._state.is_recording and self._status.text().startswith((
+            "Shortcut not applied", "Stop shortcut disabled", "Keyboard shortcut unavailable"
+        )):
+            self._status.setText("Ready — open ⚙ to configure")
+            self._status.setToolTip("")
+
+    def _stop_hotkey_listener(self) -> None:
+        listener = self._hotkey_listener
+        self._hotkey_listener = None
+        if listener is not None:
+            try:
+                listener.stop()
+                listener.join(timeout=1.0)
+            except Exception:
+                pass
 
     # ── Close ─────────────────────────────────────────────────────────────────
 
     def closeEvent(self, event) -> None:
+        self._poll_timer.stop()
+        stop_error = None
+        if self._state.is_recording:
+            try:
+                summary = self.controller.stop_session()
+                self._state.set_last_summary(summary)
+            except Exception as exc:
+                stop_error = exc
+            finally:
+                self._state.set_recording(False)
+                self._stop_elapsed_timer()
         if self._web_tracker:
             try:
                 self._web_tracker.stop_server()
             except Exception:
                 pass
-        if self._hotkey_listener:
-            try:
-                self._hotkey_listener.stop()
-            except Exception:
-                pass
+        self._stop_hotkey_listener()
+        if stop_error is not None:
+            QMessageBox.critical(self, "Session Stop Error", str(stop_error))
         super().closeEvent(event)

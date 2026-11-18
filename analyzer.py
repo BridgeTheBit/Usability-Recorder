@@ -121,6 +121,7 @@ class SessionAnalyzer:
             "participant_id": metadata.get("participant_id", "N/A"),
             "task_label": metadata.get("task_label", ""),
             "session": metadata.get("session", ""),
+            "session_label": metadata.get("session_label", metadata.get("session", "")),
             "task_duration_seconds": round(task_duration_s, 3),
             "task_duration_formatted": duration_formatted,
             "total_clicks": total_clicks,

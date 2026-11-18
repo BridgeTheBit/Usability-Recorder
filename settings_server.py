@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
+from app_paths import get_app_data_dir, get_config_path, get_default_sessions_dir, resolve_user_path
+
 
 # ─── FFmpeg helper ───────────────────────────────────────────────────────────
 
@@ -127,20 +129,16 @@ class VideoProcessorRunner:
 
         self._upd(status="Parsing click events…")
 
-        # Read video-start offset from session metadata.
-        # screen_first_frame_timestamp_s is the seconds after t0 when the recorder
-        # actually started capturing (now set AFTER ffmpeg confirms it's running).
-        # Subtracting this value aligns event timestamps with video-frame time.
+        # Read the measured first-frame offset so clicks align with the captured video.
         video_offset = 0.0
         meta_file = session_dir / "session_metadata.json"
         if meta_file.exists():
             try:
                 meta = json.loads(meta_file.read_text(encoding="utf-8"))
                 video_offset = float(meta.get("screen_first_frame_timestamp_s") or 0.0)
-                # Heuristic: if offset is positive but very small (e.g., < 0.1s), it means
-                # it was recorded with the older version of screen_recorder.py before the
-                # ffmpeg start-delay fix. The real ffmpeg start-delay is ~0.35s.
-                if 0.0 < video_offset < 0.1:
+                # Older sessions did not record the capture backend; retain their
+                # historical correction while trusting measured offsets for new files.
+                if "screen_capture_backend" not in meta and 0.0 < video_offset < 0.1:
                     video_offset = 0.35
             except Exception:
                 pass
@@ -295,7 +293,7 @@ class AppState:
         "privacy_mode":    False,
         "tracking_mode":   "disabled",
         "web_tracker_port": 9877,
-        "pupil_mode":      "zmq",
+        "pupil_mode":      "disabled",
         "pupil_ip":        "127.0.0.1",
         "pupil_port":      50020,
     }
@@ -305,6 +303,7 @@ class AppState:
 
         # Mutable config (kept in sync with config.json)
         self._config: Dict[str, Any] = dict(self._CONFIG_DEFAULTS)
+        self._config["session_root"] = str(get_default_sessions_dir())
 
         # Recording runtime state
         self._recording = False
@@ -312,16 +311,13 @@ class AppState:
         self._current_session_dir: Optional[str] = None
         self._last_summary: Optional[Dict[str, Any]] = None
 
-        # Pending GUI actions requested by the web panel
-        self._open_video_processor = False
-
         # Load persisted config
         self._load_config_file()
 
     # ── Config ────────────────────────────────────────────────────────────────
 
     def _load_config_file(self) -> None:
-        p = Path("config.json")
+        p = get_config_path()
         if not p.exists():
             return
         try:
@@ -330,13 +326,18 @@ class AppState:
                 for k in self._CONFIG_DEFAULTS:
                     if k in data:
                         self._config[k] = data[k]
+                self._config["session_root"] = str(resolve_user_path(self._config["session_root"]))
         except Exception:
             pass
 
     def save_config_file(self) -> None:
         with self._lock:
             payload = dict(self._config)
-        Path("config.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        config_path = get_config_path()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = config_path.with_suffix(".json.tmp")
+        temporary_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        temporary_path.replace(config_path)
 
     @property
     def config(self) -> Dict[str, Any]:
@@ -345,6 +346,9 @@ class AppState:
 
     def update_config(self, updates: Dict[str, Any]) -> None:
         allowed = set(self._CONFIG_DEFAULTS.keys())
+        updates = dict(updates)
+        if "session_root" in updates:
+            updates["session_root"] = str(resolve_user_path(updates["session_root"]))
         with self._lock:
             for k, v in updates.items():
                 if k in allowed:
@@ -358,11 +362,18 @@ class AppState:
         with self._lock:
             return self._recording
 
-    def set_recording(self, recording: bool, session_dir: Optional[str] = None) -> None:
+    def set_recording(
+        self,
+        recording: bool,
+        session_dir: Optional[str] = None,
+        started_monotonic: Optional[float] = None,
+    ) -> None:
         with self._lock:
             self._recording = recording
             if recording:
-                self._recording_start = time.time()
+                self._recording_start = (
+                    started_monotonic if started_monotonic is not None else time.monotonic()
+                )
                 self._current_session_dir = session_dir
             else:
                 self._recording_start = None
@@ -370,8 +381,8 @@ class AppState:
     def get_status(self) -> Dict[str, Any]:
         with self._lock:
             elapsed = 0.0
-            if self._recording and self._recording_start:
-                elapsed = time.time() - self._recording_start
+            if self._recording and self._recording_start is not None:
+                elapsed = time.monotonic() - self._recording_start
             return {
                 "is_recording":    self._recording,
                 "elapsed_seconds": int(elapsed),
@@ -387,19 +398,6 @@ class AppState:
     def get_last_summary(self) -> Optional[Dict[str, Any]]:
         with self._lock:
             return self._last_summary
-
-    # ── UI Action Flags (web panel → GUI) ─────────────────────────────────────
-
-    def request_open_video_processor(self) -> None:
-        with self._lock:
-            self._open_video_processor = True
-
-    def poll_pending_actions(self) -> Dict[str, bool]:
-        with self._lock:
-            actions = {"open_video_processor": self._open_video_processor}
-            self._open_video_processor = False
-            return actions
-
 
 # ─── Flask Server ─────────────────────────────────────────────────────────────
 
@@ -474,7 +472,7 @@ class SettingsServer:
 
         @app.route("/api/sessions")
         def api_sessions():
-            root = Path(state.config.get("session_root", "sessions"))
+            root = Path(state.config.get("session_root", get_default_sessions_dir()))
             sessions = []
             if root.exists():
                 for d in sorted(root.iterdir(), reverse=True):
@@ -513,7 +511,7 @@ class SettingsServer:
 
         @app.route("/api/sessions/<session_id>/open_folder", methods=["POST"])
         def api_open_folder(session_id: str):
-            root = Path(state.config.get("session_root", "sessions"))
+            root = Path(state.config.get("session_root", get_default_sessions_dir()))
             d = root / session_id
             if not d.exists():
                 return jsonify({"ok": False, "error": "Not found"}), 404
@@ -529,8 +527,8 @@ class SettingsServer:
         def api_analyze():
             try:
                 from analyzer import batch_analyze_sessions
-                root   = state.config.get("session_root", "sessions")
-                output = batch_analyze_sessions(root, "sessions_summary.csv")
+                root   = state.config.get("session_root", str(get_default_sessions_dir()))
+                output = batch_analyze_sessions(root, get_app_data_dir() / "sessions_summary.csv")
                 return jsonify({"ok": True, "output": str(output)})
             except Exception as exc:
                 return jsonify({"ok": False, "error": str(exc)}), 500
@@ -541,20 +539,18 @@ class SettingsServer:
         def api_export():
             try:
                 from analyzer import batch_analyze_sessions
-                root   = state.config.get("session_root", "sessions")
-                output = batch_analyze_sessions(root, "sessions_summary.csv")
+                root   = state.config.get("session_root", str(get_default_sessions_dir()))
+                output = batch_analyze_sessions(root, get_app_data_dir() / "sessions_summary.csv")
                 return jsonify({"ok": True, "output": str(output)})
             except Exception as exc:
                 return jsonify({"ok": False, "error": str(exc)}), 500
-
-        # ── Open Video Processor (signals Qt GUI thread) ──────────────────────
 
         # ── Video Processor ───────────────────────────────────────────────────
 
         @app.route("/api/video/sessions")
         def api_video_sessions():
             """Return sessions that have both events.csv and screen_recording.mp4."""
-            root = Path(state.config.get("session_root", "sessions"))
+            root = Path(state.config.get("session_root", get_default_sessions_dir()))
             result = []
             if root.exists():
                 for d in sorted(root.iterdir(), reverse=True):
@@ -574,7 +570,7 @@ class SettingsServer:
         def api_video_start():
             data       = request.get_json(force=True, silent=True) or {}
             session_id = data.get("session_id", "")
-            root       = Path(state.config.get("session_root", "sessions"))
+            root       = Path(state.config.get("session_root", get_default_sessions_dir()))
             sess_dir   = root / session_id
             if not sess_dir.is_dir():
                 return jsonify({"ok": False, "error": "Session not found"}), 404

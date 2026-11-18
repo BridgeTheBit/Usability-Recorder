@@ -14,7 +14,8 @@ def main() -> None:
     settings_server.start()
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Usability Recorder")
+    app.setApplicationName("Atlas")
+    app.setOrganizationName("BridgeTheBit")
 
     controller = SessionController()
     window = RecorderWidget(controller)

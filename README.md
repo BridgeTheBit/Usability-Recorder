@@ -1,4 +1,4 @@
-# Usability Testing Recorder (v1.1.2)
+# Atlas — Usability Recorder (v1.2.0)
 
 A hybrid usability testing recorder combining a minimal desktop control widget (Qt/PySide6) with a modern local web administration panel (Flask + Vanilla HTML5/CSS3 SPA). It synchronizes screen recording, input events (mouse/keyboard), active OS windows, browser-specific page interactions (clicks, menus, buttons via extension), and Pupil Labs eye trackers under a single monotonic clock reference.
 
@@ -22,16 +22,23 @@ The application utilizes a distributed design for low CPU overhead:
 ## 🌟 Key Capabilities
 
 1. **Precision Input Logging**: Logs mouse moves, clicks, scrolls, and key presses relative to a monotonic clock reference (`t0`) into `events.csv`. Features a privacy mode that records keypress counts only.
-2. **Robust Screen Recording**: Grabs high-quality desktop video using FFmpeg (`gdigrab`/`x11grab`) with instant fallbacks to PyMSS + OpenCV `VideoWriter`.
+2. **Robust Screen Recording**: Captures the desktop using FFmpeg (`gdigrab`/`x11grab`) and falls back to PyMSS + OpenCV `VideoWriter` when needed.
 3. **In-Browser Activity Tracking**: Tracks active tabs, window changes, and inner-page interactions (clicks on buttons, links, menus, select controls) using a companion Chrome/Edge Extension via WebSockets (port 9877).
 4. **Pupil Labs Eye Tracker Integration**: Seamless triggers for **Pupil Core** (via ZMQ) and newer **Pupil Labs Realtime API** (Neon/Invisible) with automatic time-offset calculations.
 5. **Video click burn-in processor**: Renders click animation overlays onto `screen_recording_with_clicks.mp4` with a live visual preview in the browser. Uses millisecond video timestamps (`CAP_PROP_POS_MSEC`) to prevent lag on variable framerate videos.
+
+### Recording reliability
+- A session is marked as started only after the screen recorder confirms its first real frame. The measured first-frame offset and capture backend are saved in `session_metadata.json`.
+- If both screen-capture backends fail, startup reports an error instead of saving a synthetic blank video.
+- Partial startup failures stop any modules that already started. During shutdown, each module is stopped even if another module reports an error; issues are saved in session metadata.
+- Session folder names are made unique if two sessions start during the same second.
+- Browser tracking and Pupil Labs triggers start disabled. Enable them in Settings when needed. The default stop shortcut is `Ctrl+Alt+F9`; custom shortcuts must include a modifier and one key.
 
 ---
 
 ## 📁 Session File Structure
 
-Each session creates a dedicated folder under `sessions/{participant_id}_{timestamp}/`:
+Each session creates a dedicated folder under `sessions/{participant_id}_{timestamp}/`. In the installed Windows app, sessions are stored under `%LOCALAPPDATA%\Atlas\sessions`; source runs store them in the project folder.
 
 ```
 sessions/P001_20260816_120000/
@@ -45,34 +52,28 @@ sessions/P001_20260816_120000/
 
 ---
 
-## 🚀 Installation & Setup
+## 🚀 Windows installation
 
-### 1. Python Environment
-Requires Python 3.9+. Install dependencies:
-```bash
-.venv\Scripts\activate   # If using a virtual environment
-pip install -r requirements.txt
+1. Download `AtlasSetup-1.2.0-windows-x64.exe` from [GitHub Releases](https://github.com/BridgeTheBit/Usability-Recorder/releases) and run it. It installs for the current Windows user and does not require Python, command-line setup, or administrator access.
+2. Launch **Atlas** from the Start menu. Settings, session recordings, and exports are kept under `%LOCALAPPDATA%\Atlas`; uninstalling the app leaves those files in place.
+3. Screen recording works without a separate FFmpeg installation. Atlas uses FFmpeg when available and otherwise captures through its included OpenCV fallback.
+
+Browser tracking is optional. The installer includes the extension and a **Browser extension setup** shortcut. Chrome and Edge require the user to approve an unpacked extension once; no browser extension can be silently enabled by a normal desktop installer. The extension can be skipped when browser tracking is not needed.
+
+### Run from source
+
+For developers, Python 3.10+ is required:
+```powershell
+python -m pip install -r requirements.txt
+python main.py
 ```
-
-### 2. FFmpeg (Highly Recommended)
-- **Windows**: Place `ffmpeg.exe` in the system `PATH` or create an `ffmpeg/` directory inside the project root folder containing `ffmpeg.exe`. 
-- Without FFmpeg, the recorder automatically uses a Python-based OpenCV capture fallback.
-
-### 3. Browser Extension Installation
-1. Open Chrome/Edge and go to `chrome://extensions/`.
-2. Enable **Developer mode** (top-right toggle).
-3. Click **Load unpacked** and select the `browser_extension/` directory of this repository.
-4. Ensure **Web Page Tracking** is enabled in the settings panel (uses WebSocket on port `9877`).
+For instructions to build the Windows installer, see [packaging/README.md](packaging/README.md).
 
 ---
 
 ## 💻 Usage
 
-Run the main application:
-```bash
-python main.py
-```
-1. Click the ⚙ (Gear) icon in the PyQt widget to open the Web Panel in your browser.
+1. Click the ⚙ (Gear) icon in the desktop widget to open the Web Panel in your browser.
 2. Configure your settings and input the **Participant ID** (required).
 3. Hit **Start** in the desktop widget. The widget minimizes itself to clear the desktop screen.
 4. Stop recording by pressing the global hotkey (default: `Ctrl+Alt+F9`) or using the stop button on the widget.
@@ -82,7 +83,12 @@ python main.py
 
 ## 📋 Version History (Changelog)
 
-### v1.1.2 - Video Processing Integration (Current)
+### v1.2.0 - Windows installer
+- Added a per-user Windows installer with the app runtime and dependencies included.
+- Moved installed settings, recordings, and exports to the user's local application data folder.
+- Included the optional browser extension and setup instructions with the installer.
+
+### v1.1.2 - Video Processing Integration
 - Moved click overlay video post-processor from PySide6 Qt window to a pure Python background thread.
 - Added video processing dashboard to Web Panel:
   - Visual session selector (shows sessions containing events and recordings).

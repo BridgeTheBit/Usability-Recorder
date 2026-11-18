@@ -31,6 +31,8 @@ class InputLogger:
         full_key_logging: bool = True,
         mouse_move_rate_hz: float = 30.0,
     ) -> None:
+        if mouse_move_rate_hz <= 0:
+            raise ValueError("Mouse movement sampling rate must be greater than zero.")
         self.output_path = Path(output_path)
         self.full_key_logging = full_key_logging
         self.mouse_move_rate_hz = mouse_move_rate_hz
@@ -43,6 +45,7 @@ class InputLogger:
         self._last_move_time = 0.0
         self._key_press_count = 0
         self._key_release_count = 0
+        self._error: Optional[Exception] = None
 
     def start(self, t0: float) -> None:
         """Start capturing mouse and keyboard events relative to session reference t0."""
@@ -52,6 +55,7 @@ class InputLogger:
         self._last_move_time = 0.0
         self._key_press_count = 0
         self._key_release_count = 0
+        self._error = None
         self._write_header()
 
         self._mouse_listener = pynput_mouse.Listener(
@@ -64,21 +68,44 @@ class InputLogger:
             on_release=self._on_key_release,
         )
 
-        self._mouse_listener.start()
-        self._keyboard_listener.start()
-
-        self._thread = threading.Thread(target=self._wait_for_stop, daemon=True)
-        self._thread.start()
+        try:
+            self._mouse_listener.start()
+            self._keyboard_listener.start()
+            self._thread = threading.Thread(target=self._wait_for_stop, daemon=True)
+            self._thread.start()
+        except Exception:
+            self.stop()
+            raise
 
     def stop(self) -> None:
         """Stop the logger thread and detach background input listeners."""
         self._stop_event.set()
-        if self._keyboard_listener is not None:
-            self._keyboard_listener.stop()
-        if self._mouse_listener is not None:
-            self._mouse_listener.stop()
+        errors = []
+        for listener in (self._keyboard_listener, self._mouse_listener):
+            if listener is None:
+                continue
+            try:
+                listener.stop()
+            except Exception as exc:
+                errors.append(str(exc))
+            try:
+                if listener.is_alive():
+                    listener.join(timeout=2.0)
+                    if listener.is_alive():
+                        errors.append("An input listener did not stop within 2 seconds.")
+            except Exception as exc:
+                errors.append(str(exc))
         if self._thread is not None:
-            self._thread.join(timeout=1.0)
+            self._thread.join(timeout=2.0)
+            if self._thread.is_alive():
+                errors.append("The input logger thread did not stop within 2 seconds.")
+            self._thread = None
+        self._mouse_listener = None
+        self._keyboard_listener = None
+        if self._error is not None:
+            errors.append(f"Input log write failed: {self._error}")
+        if errors:
+            raise RuntimeError("; ".join(errors))
 
     def _wait_for_stop(self) -> None:
         while not self._stop_event.wait(0.05):
@@ -103,13 +130,24 @@ class InputLogger:
         if event_type not in self.VALID_EVENT_TYPES:
             return
         with self._lock:
-            with self.output_path.open("a", encoding="utf-8", newline="") as handle:
-                writer = csv.writer(handle)
-                writer.writerow([
-                    f"{self._timestamp():.6f}",
-                    event_type,
-                    json.dumps(detail, ensure_ascii=True),
-                ])
+            try:
+                with self.output_path.open("a", encoding="utf-8", newline="") as handle:
+                    writer = csv.writer(handle)
+                    writer.writerow([
+                        f"{self._timestamp():.6f}",
+                        event_type,
+                        json.dumps(detail, ensure_ascii=True),
+                    ])
+            except Exception as exc:
+                self._error = exc
+                self._stop_event.set()
+                for listener in (self._keyboard_listener, self._mouse_listener):
+                    if listener is not None:
+                        try:
+                            listener.stop()
+                        except Exception:
+                            pass
+                raise RuntimeError(f"Could not write {event_type} to {self.output_path}.") from exc
 
     def _on_mouse_move(self, x: int, y: int) -> None:
         elapsed = time.monotonic() - self._last_move_time

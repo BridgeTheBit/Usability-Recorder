@@ -6,6 +6,7 @@ __pycache__/
 
 # Virtual environment
 .venv/
+.venv-build/
 env/
 venv/
 ENV/
@@ -26,3 +27,5 @@ Thumbs.db
 .idea/
 sessions_summary.csv
 ffmpeg/
+/build/
+/dist/

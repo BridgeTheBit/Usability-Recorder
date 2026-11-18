@@ -123,6 +123,8 @@ class WebTracker:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._connected_clients: Set = set()
         self._server_running = False
+        self._server_ready_event = threading.Event()
+        self._server_start_error: Optional[Exception] = None
 
         # Recording state (only active during a session)
         self._recording = False
@@ -141,13 +143,29 @@ class WebTracker:
         """Start the always-on WebSocket server in a background daemon thread."""
         if self._server_running:
             return
+        if self._server_thread is not None and self._server_thread.is_alive():
+            raise RuntimeError("The previous WebSocket server thread is still shutting down.")
+        self._server_thread = None
         self._server_stop_event.clear()
+        self._server_ready_event.clear()
+        self._server_start_error = None
         self._server_thread = threading.Thread(
             target=self._run_server, daemon=True, name="WebTracker-WS"
         )
-        self._server_running = True  # set before start so GUI sees it immediately
         self._server_thread.start()
-        self.logger.info("WebTracker server starting on ws://localhost:%d", self.port)
+        if not self._server_ready_event.wait(timeout=5.0):
+            self._server_stop_event.set()
+            self._server_thread.join(timeout=2.0)
+            self._server_running = False
+            if not self._server_thread.is_alive():
+                self._server_thread = None
+            raise RuntimeError(f"WebSocket server on port {self.port} did not become ready within 5 seconds.")
+        if self._server_start_error is not None:
+            self._server_thread.join(timeout=1.0)
+            if not self._server_thread.is_alive():
+                self._server_thread = None
+            raise RuntimeError(f"Could not start the WebSocket server on port {self.port}: {self._server_start_error}") from self._server_start_error
+        self.logger.info("WebTracker server ready on ws://127.0.0.1:%d", self.port)
 
     def stop_server(self) -> None:
         """Shut down the WebSocket server cleanly (call when the app closes)."""
@@ -159,6 +177,8 @@ class WebTracker:
         # Instead let _serve() exit naturally after the event is set.
         if self._server_thread is not None:
             self._server_thread.join(timeout=5.0)
+            if self._server_thread.is_alive():
+                raise RuntimeError("WebSocket server did not stop within 5 seconds.")
         self._server_running = False
         self._server_thread = None
         self.logger.info("WebTracker server stopped.")
@@ -180,6 +200,8 @@ class WebTracker:
         Activate event recording.  Call this at session start.
         The server must already be running (start_server called).
         """
+        if not self._server_running:
+            raise RuntimeError("The WebSocket server must be ready before browser tracking can start.")
         self.t0 = t0
         self._output_path = Path(output_path)
         self._output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -264,10 +286,10 @@ class WebTracker:
         try:
             import websockets  # type: ignore
         except ImportError:
-            self.logger.error(
-                "WebTracker requires 'websockets'. Install with: pip install websockets"
-            )
+            self._server_start_error = RuntimeError("The 'websockets' package is not installed.")
+            self.logger.error("WebTracker requires the 'websockets' package.")
             self._server_running = False
+            self._server_ready_event.set()
             return
 
         self._loop = asyncio.new_event_loop()
@@ -276,6 +298,9 @@ class WebTracker:
             self._loop.run_until_complete(self._serve(websockets))
         except Exception as exc:
             self.logger.warning("WebTracker: server loop exited with: %s", exc)
+            if not self._server_ready_event.is_set():
+                self._server_start_error = exc
+                self._server_ready_event.set()
         finally:
             # Cancel any tasks that are still pending (e.g. keepalive coroutines)
             try:
@@ -305,6 +330,8 @@ class WebTracker:
                 ping_timeout=10,
                 reuse_address=True,   # SO_REUSEADDR: allow port reuse on restart
             ):
+                self._server_running = True
+                self._server_ready_event.set()
                 self.logger.info("WebTracker WS server listening on ws://127.0.0.1:%d", self.port)
                 # Wait until stop_server() signals us
                 while not self._server_stop_event.is_set():
@@ -320,6 +347,8 @@ class WebTracker:
                 self._connected_clients.clear()
                 # async with block exits → server.close() is called cleanly
         except OSError as exc:
+            self._server_start_error = exc
+            self._server_ready_event.set()
             self.logger.error(
                 "WebTracker: Cannot bind to port %d — %s. "
                 "Kill any process using this port, or change the port in Settings.",
