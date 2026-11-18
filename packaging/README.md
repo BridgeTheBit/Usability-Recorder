@@ -16,7 +16,7 @@ New-Item -ItemType Directory -Force dist\installer | Out-Null
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\Atlas.iss
 ```
 
-The installer is written to `dist/installer/AtlasSetup-1.2.0-windows-x64.exe` by default. Tagged builds use the version from the tag.
+The installer is written to `dist/installer/AtlasSetup-1.2.1-windows-x64.exe` by default. Tagged builds use the version from the tag.
 
 ## Automated release build
 

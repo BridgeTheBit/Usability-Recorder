@@ -11,7 +11,6 @@ import csv
 import json
 import logging
 import os
-import shutil
 import subprocess
 import threading
 import time
@@ -21,18 +20,7 @@ from typing import Any, Dict, List, Optional
 from flask import Flask, Response, jsonify, request, send_from_directory
 
 from app_paths import get_app_data_dir, get_config_path, get_default_sessions_dir, resolve_user_path
-
-
-# ─── FFmpeg helper ───────────────────────────────────────────────────────────
-
-def find_ffmpeg() -> str:
-    p = shutil.which("ffmpeg")
-    if p:
-        return p
-    for c in [Path("ffmpeg/bin/ffmpeg.exe"), Path("ffmpeg/ffmpeg.exe")]:
-        if c.exists():
-            return str(c.resolve())
-    return "ffmpeg"
+from video_mux import finalize_video_with_audio
 
 
 # ─── Video Processor (pure Python — no Qt) ───────────────────────────────────
@@ -222,26 +210,14 @@ class VideoProcessorRunner:
             self._done(False, "Cancelled by user")
             return
 
-        # Mux audio
-        self._upd(progress=92, status="Muxing audio with ffmpeg…")
-        ffmpeg = find_ffmpeg()
-        cmd = [
-            ffmpeg, "-y",
-            "-i", str(temp_video),
-            "-i", str(original_video),
-            "-c:v", "libx264", "-preset", "ultrafast",
-            "-c:a", "copy",
-            "-map", "0:v:0", "-map", "1:a:0?",
-            str(final_video),
-        ]
+        self._upd(progress=92, status="Finalizing video…")
         try:
-            subprocess.run(cmd, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, check=True)
+            finalize_video_with_audio(temp_video, original_video, final_video, fps)
             if temp_video.exists():
                 temp_video.unlink()
             self._done(True, f"Done! Saved as: {final_video.name}")
         except Exception as exc:
-            self._done(False, f"FFmpeg failed: {exc}")
+            self._done(False, f"Video finalization failed: {exc}")
 
     @staticmethod
     def _parse_clicks(events_csv: Path, video_offset: float = 0.0) -> List[Dict[str, Any]]:

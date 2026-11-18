@@ -1,4 +1,4 @@
-# Atlas — Usability Recorder (v1.2.0)
+# Atlas — Usability Recorder (v1.2.1)
 
 A hybrid usability testing recorder combining a minimal desktop control widget (Qt/PySide6) with a modern local web administration panel (Flask + Vanilla HTML5/CSS3 SPA). It synchronizes screen recording, input events (mouse/keyboard), active OS windows, browser-specific page interactions (clicks, menus, buttons via extension), and Pupil Labs eye trackers under a single monotonic clock reference.
 
@@ -54,9 +54,9 @@ sessions/P001_20260816_120000/
 
 ## 🚀 Windows installation
 
-1. Download `AtlasSetup-1.2.0-windows-x64.exe` from [GitHub Releases](https://github.com/BridgeTheBit/Usability-Recorder/releases) and run it. It installs for the current Windows user and does not require Python, command-line setup, or administrator access.
+1. Download `AtlasSetup-1.2.1-windows-x64.exe` from [GitHub Releases](https://github.com/BridgeTheBit/Usability-Recorder/releases) and run it. It installs for the current Windows user and does not require Python, command-line setup, or administrator access.
 2. Launch **Atlas** from the Start menu. Settings, session recordings, and exports are kept under `%LOCALAPPDATA%\Atlas`; uninstalling the app leaves those files in place.
-3. Screen recording works without a separate FFmpeg installation. Atlas uses FFmpeg when available and otherwise captures through its included OpenCV fallback.
+3. Screen recording and click-overlay video processing work without a separate `ffmpeg.exe` installation. Atlas uses its bundled media libraries for processing and falls back to OpenCV for screen capture when a system FFmpeg executable is unavailable.
 
 Browser tracking is optional. The installer includes the extension and a **Browser extension setup** shortcut. Chrome and Edge require the user to approve an unpacked extension once; no browser extension can be silently enabled by a normal desktop installer. The extension can be skipped when browser tracking is not needed.
 
@@ -82,6 +82,10 @@ For instructions to build the Windows installer, see [packaging/README.md](packa
 ---
 
 ## 📋 Version History (Changelog)
+
+### v1.2.1 - Standalone video processing
+- Removed the post-processing requirement for a separately installed FFmpeg executable.
+- Use the PyAV media libraries bundled with Atlas to encode click overlays and preserve source audio.
 
 ### v1.2.0 - Windows installer
 - Added a per-user Windows installer with the app runtime and dependencies included.

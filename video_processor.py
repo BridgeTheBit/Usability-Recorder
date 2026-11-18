@@ -1,9 +1,8 @@
 import csv
 import json
-import subprocess
-import shutil
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+from video_mux import finalize_video_with_audio
 
 try:
     import cv2
@@ -23,20 +22,6 @@ from PySide6.QtWidgets import (
 )
 
 
-def find_ffmpeg() -> str:
-    which_path = shutil.which("ffmpeg")
-    if which_path:
-        return which_path
-    candidates = [
-        Path("ffmpeg/bin/ffmpeg.exe"),
-        Path("ffmpeg/ffmpeg.exe"),
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return str(candidate.resolve())
-    return "ffmpeg"
-
-
 class VideoProcessorThread(QThread):
     progress = Signal(int)
     frame_ready = Signal(QImage)
@@ -46,7 +31,6 @@ class VideoProcessorThread(QThread):
     def __init__(self, session_dir: Path):
         super().__init__()
         self.session_dir = session_dir
-        self.ffmpeg_path = find_ffmpeg()
         self._is_running = True
 
     def run(self):
@@ -142,30 +126,16 @@ class VideoProcessorThread(QThread):
             self.finished_processing.emit(False, "Processing cancelled by user.")
             return
 
-        self.status.emit("Muxing audio with ffmpeg...")
+        self.status.emit("Finalizing video...")
         self.progress.emit(95)
-        
-        command = [
-            self.ffmpeg_path,
-            "-y",
-            "-i", str(temp_video),
-            "-i", str(original_video),
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-c:a", "copy",
-            "-map", "0:v:0",
-            "-map", "1:a:0?",
-            str(final_video)
-        ]
-        
         try:
-            subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            finalize_video_with_audio(temp_video, original_video, final_video, fps)
             if temp_video.exists():
                 temp_video.unlink()
             self.progress.emit(100)
             self.finished_processing.emit(True, f"Video saved to:\n{final_video.name}")
         except Exception as e:
-            self.finished_processing.emit(False, f"Audio muxing failed: {e}")
+            self.finished_processing.emit(False, f"Video finalization failed: {e}")
 
 
     def _parse_clicks(self, events_csv: Path) -> List[Dict[str, Any]]:
