@@ -1,4 +1,4 @@
-# Atlas — Usability Recorder (v1.2.5)
+# Atlas — Usability Recorder (v1.2.6)
 
 A hybrid usability testing recorder combining a minimal desktop control widget (Qt/PySide6) with a modern local web administration panel (Flask + Vanilla HTML5/CSS3 SPA). It synchronizes screen recording, input events (mouse/keyboard), active OS windows, browser-specific page interactions (clicks, menus, buttons via extension), and Pupil Labs eye trackers under a single monotonic clock reference.
 
@@ -54,7 +54,7 @@ sessions/P001_20260816_120000/
 
 ## 🚀 Windows installation
 
-1. Download `AtlasSetup-1.2.5-windows-x64.exe` from [GitHub Releases](https://github.com/BridgeTheBit/Usability-Recorder/releases) and run it. It installs for the current Windows user and does not require Python, command-line setup, or administrator access.
+1. Download `AtlasSetup-1.2.6-windows-x64.exe` from [GitHub Releases](https://github.com/BridgeTheBit/Usability-Recorder/releases) and run it. It installs for the current Windows user and does not require Python, command-line setup, or administrator access.
 2. Launch **Atlas** from the Start menu. Settings, recordings, and exports are kept in the `data` folder beside the installed app, so choosing D: stores them on D:. Existing default session data is moved from the previous `%LOCALAPPDATA%\Atlas\sessions` location on first launch.
 3. The installer places FFmpeg at `<Atlas install folder>\ffmpeg\ffmpeg.exe`. Atlas uses that executable for screen recording and click-overlay processing; no separate FFmpeg install or PATH setup is needed.
 
@@ -73,20 +73,16 @@ For instructions to build the Windows installer, see [packaging/README.md](packa
 
 ## 💻 Usage
 
-### Session review (Phase 5 in progress)
+### Session review
 
-In **Sessions**, choose **Review** to open the recording in **Analysis**. The review panel
-shows a bounded list of clicks, scrolls, and key presses aligned to video time; selecting
-an event seeks the video. Key names and typed text are never returned by the review API.
-
-The first Phase 5 release covers per-session video replay and event navigation. Further
-analysis views are still planned.
-
-The current development version moves Session Preview into its own sidebar page. It creates
-a WebM review copy with the bundled FFmpeg for Qt playback, shows separate event and future
-eye-tracking lanes, and stores frame and range comments in `review_notes.json` beside the
-session. The sidebar shows the installed version and checks the latest GitHub release for
-an available update.
+In **Session Preview**, choose a recording from the playlist beside the video. The player
+provides frame steps, five-second skips, speed control, and separate click, scroll, key,
+comment, and future eye-tracking lanes. Click types use distinct colors and an L/R/M
+overlay on the video. Insert a comment at a frame or marked range; comments are saved in
+`review_notes.json` beside the session and appear briefly on the video during playback.
+The preview copy is made with bundled FFmpeg. A sidebar switch selects dark or light theme.
+The sidebar also shows the installed version and checks GitHub Releases for updates.
+Key names and typed text are never returned by the review API.
 
 
 1. Click the ⚙ (Gear) icon in the desktop widget to open the control panel in an Atlas window.
@@ -98,6 +94,11 @@ an available update.
 ---
 
 ## 📋 Version History (Changelog)
+
+### v1.2.6 - Refined session preview
+- Add a light theme, video-side session playlist, compact event tracks, and player controls.
+- Show frame comments briefly over playback and distinguish left, right, and middle clicks.
+- Keep the player and timeline visible together without page scrolling.
 
 ### v1.2.5 - Timeline preview and comments
 - Add a dedicated Session Preview page with event tracks and frame controls.
