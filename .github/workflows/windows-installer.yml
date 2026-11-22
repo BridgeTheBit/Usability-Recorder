@@ -43,6 +43,9 @@ jobs:
           if (-not (Get-ChildItem dist/Atlas -Recurse -File -Filter QtWebEngineProcess.exe)) {
             throw "Qt WebEngine is missing from the packaged app."
           }
+          if (-not (Get-ChildItem dist/Atlas -Recurse -File -Filter review.js)) {
+            throw "The session preview script is missing from the packaged app."
+          }
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
@@ -52,7 +55,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist/installer | Out-Null
           $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          $version = "1.2.4"
+          $version = "1.2.5"
           if ("${{ github.ref_name }}" -match '^v(\d+\.\d+\.\d+)$') { $version = $Matches[1] }
           & $compiler "/DAppVersion=$version" packaging/Atlas.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
