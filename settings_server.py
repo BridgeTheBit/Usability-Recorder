@@ -589,6 +589,36 @@ class SettingsServer:
                 subprocess.Popen(["explorer", str(d)])
             return jsonify({"ok": True})
 
+        # ── Session review ────────────────────────────────────────────────────
+
+        def review_directory(session_id: str) -> Optional[Path]:
+            if session_id in (".", "..") or Path(session_id).name != session_id:
+                return None
+            root = Path(state.config.get("session_root", get_default_sessions_dir())).resolve()
+            candidate = (root / session_id).resolve()
+            return candidate if candidate.parent == root and candidate.is_dir() else None
+
+        @app.route("/api/sessions/<session_id>/review")
+        def api_session_review(session_id: str):
+            directory = review_directory(session_id)
+            if directory is None:
+                return jsonify({"error": "Session not found"}), 404
+            from review import review_events
+            try:
+                events = review_events(directory)
+            except FileNotFoundError:
+                events = []
+            return jsonify({"events": events,
+                            "has_video": (directory / "screen_recording.mp4").is_file()})
+
+        @app.route("/api/sessions/<session_id>/recording")
+        def api_session_recording(session_id: str):
+            directory = review_directory(session_id)
+            if directory is None or not (directory / "screen_recording.mp4").is_file():
+                return jsonify({"error": "Recording not found"}), 404
+            return send_from_directory(directory, "screen_recording.mp4", mimetype="video/mp4",
+                                       conditional=True)
+
         # ── Analyze ───────────────────────────────────────────────────────────
 
         @app.route("/api/analyze", methods=["POST"])

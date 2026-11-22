@@ -336,6 +336,16 @@ input:checked+.slider::before{transform:translateX(18px)}
       <div class="card-title"><span class="ct-icon">📋</span> Session Results</div>
       <div id="analysis-sessions-list"></div>
     </div>
+    <div class="card" id="review-card">
+      <div class="card-title"><span class="ct-icon">▶</span> Session Review</div>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:14px">Replay a recording and jump to captured clicks, scrolls, and key presses.</p>
+      <select id="review-session-select" onchange="loadReview()" style="width:100%;margin-bottom:14px"><option value="">— select a session —</option></select>
+      <div id="review-content" style="display:none">
+        <video id="review-video" controls preload="metadata" style="width:100%;max-height:440px;background:#000;border-radius:8px"></video>
+        <div id="review-events" style="max-height:260px;overflow:auto;margin-top:14px"></div>
+      </div>
+      <div id="review-message" style="font-size:13px;color:var(--text3)"></div>
+    </div>
   </div>
 
   <!-- ── Video Processing ── -->
@@ -455,7 +465,7 @@ document.querySelectorAll('.nav-item').forEach(el => {
     document.getElementById('page-title').textContent = m.title || pg;
     document.getElementById('page-subtitle').textContent = m.sub || '';
     if (pg === 'sessions') reloadSessions();
-    if (pg === 'analysis') loadAnalysisSessions();
+    if (pg === 'analysis') { loadAnalysisSessions(); loadReviewSessions(); }
     if (pg === 'video')    loadVideoSessions();
   });
 });
@@ -619,6 +629,7 @@ function renderSessions() {
           <div class="sess-actions">
             <button class="btn btn-ghost btn-sm" onclick="openFolder('${s.id}',event)">📁 Open Folder</button>
             <button class="btn btn-ghost btn-sm" onclick="openVideoPage('${s.id}',event)">🎞 Process Video</button>
+            <button class="btn btn-ghost btn-sm" onclick="openReview(${i},event)">▶ Review</button>
           </div>
         </div>
       </td></tr>`;
@@ -639,6 +650,50 @@ async function openFolder(sid, e) {
 function openVideoPage(sid, e) {
   e && e.stopPropagation();
   gotoVideo(sid);
+}
+
+function openReview(i, e) {
+  e && e.stopPropagation();
+  document.querySelector('.nav-item[data-page="analysis"]').click();
+  const select = document.getElementById('review-session-select');
+  loadReviewSessions().then(() => { select.value = _sessions[i].id; loadReview(); });
+}
+
+async function loadReviewSessions() {
+  const select = document.getElementById('review-session-select');
+  const previous = select.value;
+  const sessions = await api('GET','/api/sessions');
+  select.replaceChildren(new Option('— select a session —', ''));
+  sessions.forEach(s => select.add(new Option(s.id, s.id)));
+  if (sessions.some(s => s.id === previous)) select.value = previous;
+}
+
+async function loadReview() {
+  const sid = document.getElementById('review-session-select').value;
+  const video = document.getElementById('review-video');
+  const content = document.getElementById('review-content');
+  const message = document.getElementById('review-message');
+  const list = document.getElementById('review-events');
+  video.pause(); video.removeAttribute('src'); video.load();
+  content.style.display = 'none'; list.replaceChildren(); message.textContent = '';
+  if (!sid) return;
+  try {
+    const data = await api('GET', '/api/sessions/' + encodeURIComponent(sid) + '/review');
+    if (!data.has_video) { message.textContent = 'This session has no recording.'; return; }
+    video.src = API + '/api/sessions/' + encodeURIComponent(sid) + '/recording';
+    content.style.display = '';
+    message.textContent = `${data.events.length} events shown (up to 2000)`;
+    data.events.forEach(event => {
+      const button = document.createElement('button');
+      button.className = 'btn btn-ghost btn-sm';
+      button.style.margin = '3px';
+      const minutes = Math.floor(event.time / 60);
+      const seconds = (event.time % 60).toFixed(1).padStart(4, '0');
+      button.textContent = `${minutes}:${seconds} · ${event.type.replace('mouse_', '').replace('key_press', 'key')} ${event.button}`;
+      button.onclick = () => { video.currentTime = event.time; video.play(); };
+      list.appendChild(button);
+    });
+  } catch (error) { message.textContent = 'Could not load session review.'; }
 }
 
 // ── Analysis ──

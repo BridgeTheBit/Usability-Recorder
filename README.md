@@ -73,6 +73,13 @@ For instructions to build the Windows installer, see [packaging/README.md](packa
 
 ## 💻 Usage
 
+### Session review (Phase 5 in progress)
+
+In **Sessions**, choose **Review** to open the recording in **Analysis**. The review panel
+shows a bounded list of clicks, scrolls, and key presses aligned to video time; selecting
+an event seeks the video. Key names and typed text are never returned by the review API.
+
+
 1. Click the ⚙ (Gear) icon in the desktop widget to open the control panel in an Atlas window.
 2. Configure your settings and input the **Participant ID** (required).
 3. Hit **Start** in the desktop widget. The widget minimizes itself to clear the desktop screen.
