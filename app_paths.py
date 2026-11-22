@@ -22,6 +22,12 @@ def get_install_dir() -> Path:
     return PROJECT_DIR
 
 
+def get_resource_path(*parts: str) -> Path:
+    """Locate files bundled by PyInstaller or stored in the source tree."""
+    root = Path(getattr(sys, "_MEIPASS", PROJECT_DIR)) if is_frozen() else PROJECT_DIR
+    return root.joinpath(*parts)
+
+
 def get_legacy_app_data_dir() -> Path:
     """Return the per-user data folder used by Atlas versions before 1.2.2."""
     local_app_data = os.environ.get("LOCALAPPDATA")

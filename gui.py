@@ -3,7 +3,7 @@ gui.py — Minimal desktop recording widget for Usability Testing Recorder.
 
 Only two controls:
   • Start / Stop button  (large, changes color/label while recording)
-  • ⚙ Gear button        (opens http://127.0.0.1:5000 – the settings web panel)
+  • ⚙ Gear button        (opens the settings panel in a native window)
 
 All settings, session management, export, and post-processing live in the
 web panel served by settings_server.py.
@@ -11,23 +11,24 @@ web panel served by settings_server.py.
 from __future__ import annotations
 
 import re
-import webbrowser
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
+    QMainWindow,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from app_paths import get_default_sessions_dir
+from app_paths import get_default_sessions_dir, get_resource_path
 from settings_server import AppState, SettingsServer, app_state, settings_server
 from web_tracker import WebTracker
 
@@ -69,6 +70,28 @@ def _parse_hotkey(hotkey_str: str) -> str:
     else:
         raise ValueError("Use one letter, number, or function key such as F9.")
     return "+".join([*modifiers, key])
+
+
+class ControlPanelWindow(QMainWindow):
+    """Display the local control panel in a regular Windows app window."""
+
+    def __init__(self, port: int) -> None:
+        super().__init__()
+        self.setWindowTitle("Atlas — Control Panel")
+        self.setWindowIcon(QIcon(str(get_resource_path("assets", "atlas-icon.png"))))
+        self.resize(1200, 800)
+        self.setMinimumSize(900, 600)
+
+        self._view = QWebEngineView(self)
+        self.setCentralWidget(self._view)
+        self._load_attempts = 0
+        self._view.loadFinished.connect(self._on_load_finished)
+        self._view.load(QUrl(f"http://127.0.0.1:{port}/"))
+
+    def _on_load_finished(self, success: bool) -> None:
+        if not success and self._load_attempts < 3:
+            self._load_attempts += 1
+            QTimer.singleShot(700, self._view.reload)
 
 
 # ─── Minimal Recording Widget ─────────────────────────────────────────────────
@@ -134,6 +157,7 @@ class RecorderWidget(QWidget):
         self._configured_hotkey: Optional[str] = None
         self._elapsed_timer: Optional[QTimer] = None
         self._elapsed_seconds = 0
+        self._panel_window: Optional[ControlPanelWindow] = None
 
         self.stop_requested.connect(self.on_stop)
 
@@ -162,10 +186,19 @@ class RecorderWidget(QWidget):
         hdr = QHBoxLayout()
         hdr.setSpacing(8)
 
+        self._logo = QLabel()
+        logo_pixmap = QPixmap(str(get_resource_path("assets", "atlas-icon.png")))
+        self._logo.setPixmap(logo_pixmap.scaled(
+            26, 26,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        ))
+        hdr.addWidget(self._logo)
+
         self._dot = QLabel("●")
         self._dot.setStyleSheet("color: #484f58; font-size: 11px;")
 
-        self._title = QLabel("Usability Test Recorder")
+        self._title = QLabel("Atlas")
         self._title.setStyleSheet("color: #8b949e; font-size: 12px; font-weight: 600;")
 
         hdr.addWidget(self._dot)
@@ -174,7 +207,7 @@ class RecorderWidget(QWidget):
 
         self._gear_btn = QPushButton("⚙")
         self._gear_btn.setFixedSize(32, 32)
-        self._gear_btn.setToolTip("Open Settings & Sessions Panel (localhost:5000)")
+        self._gear_btn.setToolTip("Open Atlas Control Panel")
         self._gear_btn.setStyleSheet(self._GEAR_STYLE)
         self._gear_btn.clicked.connect(self._open_panel)
         hdr.addWidget(self._gear_btn)
@@ -202,7 +235,11 @@ class RecorderWidget(QWidget):
             self.on_start()
 
     def _open_panel(self) -> None:
-        webbrowser.open(f"http://127.0.0.1:{self._server.port}")
+        if self._panel_window is None:
+            self._panel_window = ControlPanelWindow(self._server.port)
+        self._panel_window.showNormal()
+        self._panel_window.raise_()
+        self._panel_window.activateWindow()
 
     def on_start(self) -> None:
         cfg = self._state.config
@@ -406,6 +443,8 @@ class RecorderWidget(QWidget):
 
     def closeEvent(self, event) -> None:
         self._poll_timer.stop()
+        if self._panel_window is not None:
+            self._panel_window.close()
         stop_error = None
         if self._state.is_recording:
             try:

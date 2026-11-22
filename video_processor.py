@@ -1,5 +1,6 @@
 import csv
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -144,6 +145,7 @@ class VideoProcessorThread(QThread):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
             if temp_video.exists():
                 temp_video.unlink()

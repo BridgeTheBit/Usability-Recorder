@@ -164,7 +164,10 @@ class ScreenRecorder:
         return self._first_frame_timestamp_s
 
     def _start_ffmpeg_recording(self) -> None:
-        creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        creation_flags = (
+            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+            if os.name == "nt" else 0
+        )
         command = [
             self.ffmpeg_path,
             "-y",

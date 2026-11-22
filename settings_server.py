@@ -25,6 +25,7 @@ from app_paths import (
     get_config_path,
     get_default_sessions_dir,
     get_legacy_app_data_dir,
+    get_resource_path,
     is_frozen,
     resolve_user_path,
 )
@@ -235,6 +236,7 @@ class VideoProcessorRunner:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
             if temp_video.exists():
                 temp_video.unlink()
@@ -465,7 +467,8 @@ class AppState:
 class SettingsServer:
     """Runs a Flask web server on localhost in a background daemon thread."""
 
-    WEB_PANEL_DIR = Path(__file__).parent / "web_panel"
+    WEB_PANEL_DIR = get_resource_path("web_panel")
+    ASSETS_DIR = get_resource_path("assets")
 
     def __init__(self, state: AppState, port: int = 5000) -> None:
         self.state = state
@@ -510,6 +513,10 @@ class SettingsServer:
         @app.route("/")
         def index():
             return send_from_directory(panel_dir, "index.html")
+
+        @app.route("/assets/<path:filename>")
+        def asset(filename: str):
+            return send_from_directory(str(self.ASSETS_DIR), filename)
 
         # ── Status ───────────────────────────────────────────────────────────
 
