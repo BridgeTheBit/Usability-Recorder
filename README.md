@@ -1,4 +1,4 @@
-# Atlas — Usability Recorder (v1.2.3)
+# Atlas — Usability Recorder (v1.2.4)
 
 A hybrid usability testing recorder combining a minimal desktop control widget (Qt/PySide6) with a modern local web administration panel (Flask + Vanilla HTML5/CSS3 SPA). It synchronizes screen recording, input events (mouse/keyboard), active OS windows, browser-specific page interactions (clicks, menus, buttons via extension), and Pupil Labs eye trackers under a single monotonic clock reference.
 
@@ -54,7 +54,7 @@ sessions/P001_20260816_120000/
 
 ## 🚀 Windows installation
 
-1. Download `AtlasSetup-1.2.3-windows-x64.exe` from [GitHub Releases](https://github.com/BridgeTheBit/Usability-Recorder/releases) and run it. It installs for the current Windows user and does not require Python, command-line setup, or administrator access.
+1. Download `AtlasSetup-1.2.4-windows-x64.exe` from [GitHub Releases](https://github.com/BridgeTheBit/Usability-Recorder/releases) and run it. It installs for the current Windows user and does not require Python, command-line setup, or administrator access.
 2. Launch **Atlas** from the Start menu. Settings, recordings, and exports are kept in the `data` folder beside the installed app, so choosing D: stores them on D:. Existing default session data is moved from the previous `%LOCALAPPDATA%\Atlas\sessions` location on first launch.
 3. The installer places FFmpeg at `<Atlas install folder>\ffmpeg\ffmpeg.exe`. Atlas uses that executable for screen recording and click-overlay processing; no separate FFmpeg install or PATH setup is needed.
 
@@ -79,6 +79,9 @@ In **Sessions**, choose **Review** to open the recording in **Analysis**. The re
 shows a bounded list of clicks, scrolls, and key presses aligned to video time; selecting
 an event seeks the video. Key names and typed text are never returned by the review API.
 
+The first Phase 5 release covers per-session video replay and event navigation. Further
+analysis views are still planned.
+
 
 1. Click the ⚙ (Gear) icon in the desktop widget to open the control panel in an Atlas window.
 2. Configure your settings and input the **Participant ID** (required).
@@ -89,6 +92,10 @@ an event seeks the video. Key names and typed text are never returned by the rev
 ---
 
 ## 📋 Version History (Changelog)
+
+### v1.2.4 - Initial session review
+- Replay a recorded session inside the Analysis page and seek to captured interactions.
+- Align review events to the measured first video frame without exposing key names.
 
 ### v1.2.3 - Native control panel and Atlas icon
 - Use the supplied transparent logo in the app window, control panel, executable, shortcuts, and installer.
