@@ -82,6 +82,12 @@ an event seeks the video. Key names and typed text are never returned by the rev
 The first Phase 5 release covers per-session video replay and event navigation. Further
 analysis views are still planned.
 
+The current development version moves Session Preview into its own sidebar page. It creates
+a WebM review copy with the bundled FFmpeg for Qt playback, shows separate event and future
+eye-tracking lanes, and stores frame and range comments in `review_notes.json` beside the
+session. The sidebar shows the installed version and checks the latest GitHub release for
+an available update.
+
 
 1. Click the ⚙ (Gear) icon in the desktop widget to open the control panel in an Atlas window.
 2. Configure your settings and input the **Participant ID** (required).

@@ -2,7 +2,72 @@
 
 import csv
 import json
+import os
 from pathlib import Path
+import subprocess
+import threading
+import uuid
+
+from ffmpeg_utils import require_ffmpeg
+
+_conversion_lock = threading.Lock()
+_conversions: dict[str, dict] = {}
+
+
+def preview_status(session_dir: Path) -> dict:
+    source = session_dir / "screen_recording.mp4"
+    target = session_dir / "review_preview.webm"
+    if not source.is_file():
+        return {"status": "missing"}
+    if target.is_file() and target.stat().st_mtime >= source.stat().st_mtime:
+        return {"status": "ready"}
+    key = str(session_dir.resolve())
+    with _conversion_lock:
+        current = _conversions.get(key)
+        if current and current["status"] in ("processing", "error") and current.get("source_mtime") == source.stat().st_mtime:
+            return current.copy()
+        _conversions[key] = {"status": "processing", "source_mtime": source.stat().st_mtime}
+    threading.Thread(target=_convert_preview, args=(session_dir, key), daemon=True).start()
+    return {"status": "processing"}
+
+
+def _convert_preview(session_dir: Path, key: str) -> None:
+    target = session_dir / "review_preview.webm"
+    temporary = session_dir / f"review_preview-{uuid.uuid4().hex}.webm"
+    try:
+        command = [require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
+                   "-i", str(session_dir / "screen_recording.mp4"), "-vf",
+                   "scale=min(1280\\,iw):-2", "-c:v", "libvpx", "-deadline", "realtime",
+                   "-cpu-used", "5", "-b:v", "1500k", "-c:a", "libopus", str(temporary)]
+        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        completed = subprocess.run(command, capture_output=True, text=True,
+                                   creationflags=flags, timeout=3600)
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stderr[-500:] or "FFmpeg conversion failed")
+        temporary.replace(target)
+        result = {"status": "ready"}
+    except Exception as error:
+        result = {"status": "error", "error": str(error)}
+    finally:
+        temporary.unlink(missing_ok=True)
+    with _conversion_lock:
+        result["source_mtime"] = (session_dir / "screen_recording.mp4").stat().st_mtime
+        _conversions[key] = result
+
+
+def load_notes(session_dir: Path) -> list[dict]:
+    path = session_dir / "review_notes.json"
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return data if isinstance(data, list) else []
+
+
+def save_notes(session_dir: Path, notes: list[dict]) -> None:
+    path = session_dir / "review_notes.json"
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(notes, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(path)
 
 
 def review_events(session_dir: Path, limit: int = 2000) -> list[dict]:

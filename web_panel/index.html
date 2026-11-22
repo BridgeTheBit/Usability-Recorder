@@ -123,6 +123,16 @@ input:checked+.slider::before{transform:translateX(18px)}
 .sess-metric .mv{font-size:18px;font-weight:700;color:var(--text)}
 .sess-metric .ml{font-size:11px;color:var(--text3);margin-top:2px}
 .sess-actions{display:flex;gap:8px;flex-wrap:wrap}
+.review-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}
+.review-workspace{overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:#0c1425}
+.review-ruler,.review-track{display:flex;min-width:760px;border-bottom:1px solid var(--border)}
+.review-label{width:135px;flex:none;padding:12px;color:var(--text2);font-size:12px;border-right:1px solid var(--border)}
+.review-lane{position:relative;flex:1;min-height:42px;cursor:pointer}
+.review-marker{position:absolute;top:10px;width:9px;height:21px;border-radius:4px;transform:translateX(-50%);border:0;cursor:pointer}
+.review-range{position:absolute;top:8px;height:25px;border-radius:5px;background:#e9ad4f;cursor:pointer;min-width:7px}
+.review-playhead{position:absolute;top:0;bottom:0;width:2px;background:#67c6ff;pointer-events:none;z-index:3}
+.review-ruler .review-lane{min-height:34px}
+.review-tick{position:absolute;top:10px;font-size:11px;color:var(--text3);transform:translateX(-50%)}
 
 /* ── Progress bar ── */
 .progress-track{background:var(--surface2);border-radius:6px;height:10px;overflow:hidden;margin-bottom:12px}
@@ -162,7 +172,8 @@ input:checked+.slider::before{transform:translateX(18px)}
     <img class="logo-icon" src="/assets/atlas-icon.png" alt="Atlas logo"/>
     <div>
       <div class="logo-text">Atlas</div>
-      <div class="logo-sub">Usability Recorder</div>
+      <div class="logo-sub">Usability Recorder · <span id="atlas-version">v…</span></div>
+      <a id="atlas-update" href="#" style="display:none;font-size:11px;color:var(--accent);margin-top:5px">Update available</a>
     </div>
   </div>
 
@@ -180,6 +191,7 @@ input:checked+.slider::before{transform:translateX(18px)}
     <div class="nav-label">Data</div>
     <div class="nav-item" data-page="sessions"><span class="nav-icon">📂</span> Sessions</div>
     <div class="nav-item" data-page="analysis"><span class="nav-icon">📊</span> Analysis</div>
+    <div class="nav-item" data-page="review"><span class="nav-icon">▶</span> Session Preview</div>
     <div class="nav-item" data-page="video"><span class="nav-icon">🎞</span> Video Processing</div>
     <div class="nav-item" data-page="export"><span class="nav-icon">📤</span> Export</div>
   </div>
@@ -336,13 +348,33 @@ input:checked+.slider::before{transform:translateX(18px)}
       <div class="card-title"><span class="ct-icon">📋</span> Session Results</div>
       <div id="analysis-sessions-list"></div>
     </div>
+  </div>
+
+  <div class="page" id="page-review">
     <div class="card" id="review-card">
       <div class="card-title"><span class="ct-icon">▶</span> Session Review</div>
-      <p style="font-size:13px;color:var(--text2);margin-bottom:14px">Replay a recording and jump to captured clicks, scrolls, and key presses.</p>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:14px">Replay the session, navigate frame by frame, and annotate moments or ranges.</p>
       <select id="review-session-select" onchange="loadReview()" style="width:100%;margin-bottom:14px"><option value="">— select a session —</option></select>
       <div id="review-content" style="display:none">
-        <video id="review-video" controls preload="metadata" style="width:100%;max-height:440px;background:#000;border-radius:8px"></video>
-        <div id="review-events" style="max-height:260px;overflow:auto;margin-top:14px"></div>
+        <video id="review-video" preload="metadata" style="width:100%;max-height:440px;background:#000;border-radius:8px"></video>
+        <div class="review-toolbar">
+          <button class="btn btn-ghost btn-sm" onclick="reviewSkip(-5)" title="Back five seconds">−5s</button>
+          <button class="btn btn-ghost btn-sm" onclick="reviewStep(-1)" title="Previous frame">❮ Frame</button>
+          <button class="btn btn-primary btn-sm" id="review-play" onclick="reviewTogglePlay()">▶ Play</button>
+          <button class="btn btn-ghost btn-sm" onclick="reviewStep(1)" title="Next frame">Frame ❯</button>
+          <button class="btn btn-ghost btn-sm" onclick="reviewSkip(5)" title="Forward five seconds">+5s</button>
+          <select id="review-speed" onchange="reviewVideo.playbackRate=Number(this.value)" aria-label="Playback speed" style="width:85px"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select>
+          <span id="review-time" style="font-family:monospace;color:var(--accent)">00:00.000</span>
+          <button class="btn btn-ghost btn-sm" onclick="reviewMarkStart()">Mark start</button>
+          <button class="btn btn-ghost btn-sm" onclick="reviewMarkEnd()">Mark end</button>
+          <span id="review-range-label" style="font-size:12px;color:var(--text3)">Current frame</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:14px">
+          <input id="review-note-text" maxlength="2000" placeholder="Comment at frame or selected range" style="flex:1"/>
+          <button class="btn btn-primary btn-sm" onclick="reviewAddNote()">Save comment</button>
+          <button class="btn btn-ghost btn-sm" onclick="reviewClearNote()">New</button>
+        </div>
+        <div class="review-workspace" id="review-timeline"></div>
       </div>
       <div id="review-message" style="font-size:13px;color:var(--text3)"></div>
     </div>
@@ -449,6 +481,7 @@ const PAGE_META = {
   settings:  { title:'Settings',             sub:'Recording, tracking, and device configuration' },
   sessions:  { title:'Sessions',             sub:'All recorded usability test sessions' },
   analysis:  { title:'Batch Analysis',       sub:'Run analysis across all sessions' },
+  review:    { title:'Session Preview',      sub:'Video and interaction tracks' },
   video:     { title:'Video Processing',     sub:'Burn click overlays into screen recordings' },
   export:    { title:'Export & Processing',  sub:'Export data and post-process recordings' },
 };
@@ -465,7 +498,8 @@ document.querySelectorAll('.nav-item').forEach(el => {
     document.getElementById('page-title').textContent = m.title || pg;
     document.getElementById('page-subtitle').textContent = m.sub || '';
     if (pg === 'sessions') reloadSessions();
-    if (pg === 'analysis') { loadAnalysisSessions(); loadReviewSessions(); }
+    if (pg === 'analysis') loadAnalysisSessions();
+    if (pg === 'review') loadReviewSessions();
     if (pg === 'video')    loadVideoSessions();
   });
 });
@@ -654,7 +688,7 @@ function openVideoPage(sid, e) {
 
 function openReview(i, e) {
   e && e.stopPropagation();
-  document.querySelector('.nav-item[data-page="analysis"]').click();
+  document.querySelector('.nav-item[data-page="review"]').click();
   const select = document.getElementById('review-session-select');
   loadReviewSessions().then(() => { select.value = _sessions[i].id; loadReview(); });
 }
@@ -897,6 +931,18 @@ loadConfig();
 reloadSessions();
 pollStatus();
 setInterval(pollStatus, 2000);
+</script>
+<script src="/review.js"></script>
+<script>
+fetch('/api/version').then(r => r.json()).then(info => {
+  document.getElementById('atlas-version').textContent = 'v' + info.current;
+  if (info.update_url) {
+    const link = document.getElementById('atlas-update');
+    link.href = info.update_url;
+    link.textContent = 'Update to v' + info.latest + ' ↗';
+    link.style.display = 'block';
+  }
+}).catch(() => { document.getElementById('atlas-version').textContent = 'v1.2.4'; });
 </script>
 </body>
 </html>

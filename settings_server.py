@@ -10,11 +10,13 @@ import base64
 import csv
 import json
 import logging
+import math
 import os
 import shutil
 import subprocess
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -514,6 +516,10 @@ class SettingsServer:
         def index():
             return send_from_directory(panel_dir, "index.html")
 
+        @app.route("/review.js")
+        def review_script():
+            return send_from_directory(panel_dir, "review.js", mimetype="text/javascript", max_age=0)
+
         @app.route("/assets/<path:filename>")
         def asset(filename: str):
             return send_from_directory(str(self.ASSETS_DIR), filename)
@@ -523,6 +529,11 @@ class SettingsServer:
         @app.route("/api/status")
         def api_status():
             return jsonify(state.get_status())
+
+        @app.route("/api/version")
+        def api_version():
+            from version import latest_release
+            return jsonify(latest_release())
 
         # ── Config ───────────────────────────────────────────────────────────
 
@@ -603,13 +614,58 @@ class SettingsServer:
             directory = review_directory(session_id)
             if directory is None:
                 return jsonify({"error": "Session not found"}), 404
-            from review import review_events
+            from review import review_events, load_notes
             try:
                 events = review_events(directory)
             except FileNotFoundError:
                 events = []
-            return jsonify({"events": events,
+            metadata_path = directory / "session_metadata.json"
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+            return jsonify({"events": events, "notes": load_notes(directory),
+                            "fps": float(metadata.get("fps") or 30),
                             "has_video": (directory / "screen_recording.mp4").is_file()})
+
+        @app.route("/api/sessions/<session_id>/review/notes", methods=["POST"])
+        def api_review_notes(session_id: str):
+            directory = review_directory(session_id)
+            if directory is None:
+                return jsonify({"error": "Session not found"}), 404
+            data = request.get_json(silent=True) or {}
+            text = data.get("text")
+            start, end = data.get("start"), data.get("end")
+            if not isinstance(text, str) or not text.strip() or len(text) > 2000:
+                return jsonify({"error": "Comment must contain 1–2000 characters"}), 400
+            if (not isinstance(start, (int, float)) or not isinstance(end, (int, float))
+                    or not math.isfinite(start) or not math.isfinite(end) or not 0 <= start <= end):
+                return jsonify({"error": "Invalid frame range"}), 400
+            from review import load_notes, save_notes
+            notes = load_notes(directory)
+            note_id = data.get("id")
+            note = next((item for item in notes if item["id"] == note_id), None) if note_id else None
+            created = note is None
+            if note_id and created:
+                return jsonify({"error": "Comment not found"}), 404
+            if created:
+                note = {"id": uuid.uuid4().hex}
+                notes.append(note)
+            note.update({"text": text.strip(), "start": start, "end": end})
+            save_notes(directory, notes)
+            return jsonify(note), 201 if created else 200
+
+        @app.route("/api/sessions/<session_id>/review/preview")
+        def api_review_preview(session_id: str):
+            directory = review_directory(session_id)
+            if directory is None:
+                return jsonify({"error": "Session not found"}), 404
+            from review import preview_status
+            return jsonify(preview_status(directory))
+
+        @app.route("/api/sessions/<session_id>/review/preview.webm")
+        def api_review_preview_file(session_id: str):
+            directory = review_directory(session_id)
+            if directory is None or not (directory / "review_preview.webm").is_file():
+                return jsonify({"error": "Preview not ready"}), 404
+            return send_from_directory(directory, "review_preview.webm", mimetype="video/webm", conditional=True)
 
         @app.route("/api/sessions/<session_id>/recording")
         def api_session_recording(session_id: str):

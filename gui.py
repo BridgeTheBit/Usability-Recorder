@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QDesktopServices, QIcon, QPixmap
+from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication,
@@ -72,6 +73,14 @@ def _parse_hotkey(hotkey_str: str) -> str:
     return "+".join([*modifiers, key])
 
 
+class ControlPanelPage(QWebEnginePage):
+    def acceptNavigationRequest(self, url: QUrl, navigation_type, is_main_frame: bool) -> bool:
+        if is_main_frame and url.host().lower() == "github.com":
+            QDesktopServices.openUrl(url)
+            return False
+        return super().acceptNavigationRequest(url, navigation_type, is_main_frame)
+
+
 class ControlPanelWindow(QMainWindow):
     """Display the local control panel in a regular Windows app window."""
 
@@ -83,6 +92,7 @@ class ControlPanelWindow(QMainWindow):
         self.setMinimumSize(900, 600)
 
         self._view = QWebEngineView(self)
+        self._view.setPage(ControlPanelPage(self._view))
         self.setCentralWidget(self._view)
         self._load_attempts = 0
         self._view.loadFinished.connect(self._on_load_finished)
