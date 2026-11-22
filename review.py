@@ -91,6 +91,13 @@ def review_events(session_dir: Path, limit: int = 2000) -> list[dict]:
                 continue
             if kind == "mouse_click" and not detail.get("pressed", True):
                 continue
-            result.append({"time": round(seconds, 3), "type": kind,
-                           "button": str(detail.get("button", "")) if kind == "mouse_click" else ""})
+            event = {"time": round(seconds, 3), "type": kind,
+                     "button": str(detail.get("button", "")) if kind == "mouse_click" else ""}
+            if kind == "mouse_click":
+                try:
+                    event["x"] = float(detail["x"])
+                    event["y"] = float(detail["y"])
+                except (KeyError, TypeError, ValueError):
+                    pass
+            result.append(event)
     return result

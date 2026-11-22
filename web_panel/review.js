@@ -4,6 +4,8 @@ let reviewStart = null;
 let reviewEnd = null;
 let reviewSelectedNote = null;
 let reviewPoll = null;
+let reviewBubbleTimer = null;
+let reviewVisibleNote = null;
 const reviewVideo = document.getElementById('review-video');
 
 function reviewClock(seconds) {
@@ -13,15 +15,18 @@ function reviewClock(seconds) {
 
 function reviewUpdateTime() {
   document.getElementById('review-time').textContent = reviewClock(reviewVideo.currentTime);
-  document.getElementById('review-play').textContent = reviewVideo.paused ? '▶ Play' : '⏸ Pause';
+  document.getElementById('review-play').textContent = reviewVideo.paused ? '▶' : 'Ⅱ';
   document.querySelectorAll('.review-playhead').forEach(line => {
     line.style.left = `${Math.min(100, reviewVideo.currentTime / (reviewVideo.duration || 1) * 100)}%`;
   });
+  reviewDrawOverlay();
+  reviewShowComment();
 }
 reviewVideo.addEventListener('timeupdate', reviewUpdateTime);
 reviewVideo.addEventListener('play', reviewUpdateTime);
 reviewVideo.addEventListener('pause', reviewUpdateTime);
 reviewVideo.addEventListener('loadedmetadata', reviewRenderTimeline);
+new ResizeObserver(reviewDrawOverlay).observe(document.querySelector('.review-video-wrap'));
 reviewVideo.addEventListener('error', () => {
   if (!reviewVideo.hasAttribute('src')) return;
   document.getElementById('review-message').textContent = 'Preview could not be decoded. Try selecting the session again.';
@@ -55,20 +60,79 @@ function reviewClearNote() {
   document.getElementById('review-note-text').value = '';
   reviewRangeLabel();
 }
+function reviewOpenNoteEditor() {
+  document.getElementById('review-note-editor').classList.add('visible');
+  document.getElementById('review-note-text').focus();
+}
+function reviewCloseNoteEditor() {
+  document.getElementById('review-note-editor').classList.remove('visible');
+  reviewClearNote();
+}
+
+function reviewShowComment() {
+  const bubble = document.getElementById('review-bubble');
+  const note = reviewData?.notes.find(n => reviewVideo.currentTime >= n.start &&
+    reviewVideo.currentTime <= n.end + Math.max(0.4, 1 / (reviewData.fps || 30)));
+  if (!note) {
+    if (reviewVisibleNote) { bubble.hidden = true; reviewVisibleNote = null; }
+    return;
+  }
+  if (reviewVisibleNote === note.id) return;
+  reviewVisibleNote = note.id;
+  bubble.textContent = note.text;
+  bubble.hidden = false;
+  clearTimeout(reviewBubbleTimer);
+  reviewBubbleTimer = setTimeout(() => { bubble.hidden = true; }, 5000);
+}
+
+function reviewDrawOverlay() {
+  const canvas = document.getElementById('review-overlay');
+  const bounds = canvas.getBoundingClientRect();
+  const scaleFactor = window.devicePixelRatio || 1;
+  canvas.width = Math.round(bounds.width * scaleFactor);
+  canvas.height = Math.round(bounds.height * scaleFactor);
+  const ctx = canvas.getContext('2d');
+  ctx.scale(scaleFactor, scaleFactor);
+  if (!reviewData || !reviewVideo.videoWidth || !reviewVideo.videoHeight) return;
+  const scale = Math.min(bounds.width / reviewVideo.videoWidth, bounds.height / reviewVideo.videoHeight);
+  const left = (bounds.width - reviewVideo.videoWidth * scale) / 2;
+  const top = (bounds.height - reviewVideo.videoHeight * scale) / 2;
+  const now = reviewVideo.currentTime;
+  reviewData.events.filter(e => e.type === 'mouse_click' && Number.isFinite(e.x) &&
+    Number.isFinite(e.y) && now >= e.time && now <= e.time + 0.7).forEach(e => {
+    const button = e.button.toLowerCase();
+    const kind = button.includes('right') ? 'R' : button.includes('middle') ? 'M' : 'L';
+    const color = kind === 'R' ? '#ef6c78' : kind === 'M' ? '#c890f3' : '#50a4ff';
+    const x = left + e.x * scale, y = top + e.y * scale;
+    const radius = 19 + (now - e.time) * 17;
+    ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = color; ctx.font = 'bold 15px Inter, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(kind, x, y);
+  });
+}
 
 async function loadReview() {
   const sid = document.getElementById('review-session-select').value;
   const content = document.getElementById('review-content');
   const message = document.getElementById('review-message');
   clearTimeout(reviewPoll); reviewVideo.pause(); reviewVideo.removeAttribute('src'); reviewVideo.load();
-  content.style.display = 'none'; message.textContent = ''; reviewData = null; reviewClearNote();
+  content.classList.add('no-session');
+  message.textContent = ''; reviewData = null; reviewCloseNoteEditor();
+  clearTimeout(reviewBubbleTimer); reviewVisibleNote = null;
+  document.getElementById('review-bubble').hidden = true;
+  document.getElementById('review-timeline').replaceChildren();
+  reviewDrawOverlay();
+  document.getElementById('review-video-placeholder').hidden = !!sid;
+  document.querySelectorAll('.review-playlist-item').forEach(item => item.classList.toggle('active',
+    item.querySelector('small')?.textContent.endsWith(' · ' + sid)));
   if (!sid) return;
   try {
     const data = await api('GET', `/api/sessions/${encodeURIComponent(sid)}/review`);
     if (sid !== document.getElementById('review-session-select').value) return;
     reviewData = {...data, sid};
     if (!data.has_video) { message.textContent = 'This session has no recording.'; return; }
-    content.style.display = '';
+    content.classList.remove('no-session');
     reviewRenderTimeline();
     reviewLoadPreview(sid);
   } catch (error) { message.textContent = 'Could not load session review.'; }
@@ -132,7 +196,11 @@ function reviewRenderTimeline() {
     } else {
       reviewData.events.filter(e => e.type === type).forEach(event => {
         const mark = document.createElement('button'); mark.className = 'review-marker';
-        mark.style.left = `${event.time / duration * 100}%`; mark.style.background = color;
+        mark.style.left = `${event.time / duration * 100}%`;
+        const button = (event.button || '').toLowerCase();
+        mark.style.background = type === 'mouse_click'
+          ? (button.includes('right') ? '#ef6c78' : button.includes('middle') ? '#c890f3' : '#50a4ff')
+          : color;
         mark.title = `${reviewClock(event.time)} ${name}${event.button ? ': ' + event.button : ''}`;
         mark.onclick = () => { reviewVideo.currentTime = event.time; reviewVideo.pause(); };
         lane.appendChild(mark);
@@ -156,6 +224,6 @@ async function reviewAddNote() {
       {id: reviewSelectedNote, text, start, end});
     const index = reviewData.notes.findIndex(item => item.id === note.id);
     if (index < 0) reviewData.notes.push(note); else reviewData.notes[index] = note;
-    reviewClearNote(); reviewRenderTimeline(); toast('Comment saved', 'success');
+    reviewCloseNoteEditor(); reviewRenderTimeline(); toast('Comment saved', 'success');
   } catch (error) { toast('Could not save comment', 'error'); }
 }
