@@ -1,6 +1,6 @@
 #define AppName "Atlas"
 #ifndef AppVersion
-#define AppVersion "1.2.2"
+#define AppVersion "1.2.3"
 #endif
 #define AppPublisher "BridgeTheBit"
 #define AppExeName "Atlas.exe"
@@ -14,6 +14,7 @@ AppPublisherURL=https://github.com/BridgeTheBit/Usability-Recorder
 DefaultDirName={localappdata}\Programs\Atlas
 DefaultGroupName={#AppName}
 UninstallDisplayIcon={app}\{#AppExeName}
+SetupIconFile=..\assets\atlas-icon.ico
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64

@@ -5,7 +5,10 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metada
 
 
 ROOT = Path(SPECPATH).resolve().parent
-datas = [(str(ROOT / "web_panel"), "web_panel")]
+datas = [
+    (str(ROOT / "web_panel"), "web_panel"),
+    (str(ROOT / "assets"), "assets"),
+]
 binaries = []
 hiddenimports = []
 
@@ -49,6 +52,7 @@ executable = EXE(
     [],
     exclude_binaries=True,
     name="Atlas",
+    icon=str(ROOT / "assets" / "atlas-icon.ico"),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
