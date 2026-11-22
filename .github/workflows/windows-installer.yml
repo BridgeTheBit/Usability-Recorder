@@ -24,11 +24,25 @@ jobs:
       - name: Install application and packaging dependencies
         run: python -m pip install -r requirements-build.txt
 
+      - name: Prepare Windows icon
+        shell: pwsh
+        run: ./packaging/build_icon.ps1
+
       - name: Package Atlas
         run: pyinstaller --noconfirm --clean packaging/Atlas.spec
 
       - name: Bundle FFmpeg beside Atlas
         run: python packaging/bundle_ffmpeg.py
+
+      - name: Confirm desktop resources are packaged
+        shell: pwsh
+        run: |
+          if (-not (Get-ChildItem dist/Atlas -Recurse -File -Filter atlas-icon.png)) {
+            throw "The Atlas logo is missing from the packaged app."
+          }
+          if (-not (Get-ChildItem dist/Atlas -Recurse -File -Filter QtWebEngineProcess.exe)) {
+            throw "Qt WebEngine is missing from the packaged app."
+          }
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
@@ -38,7 +52,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist/installer | Out-Null
           $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          $version = "1.2.2"
+          $version = "1.2.3"
           if ("${{ github.ref_name }}" -match '^v(\d+\.\d+\.\d+)$') { $version = $Matches[1] }
           & $compiler "/DAppVersion=$version" packaging/Atlas.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
