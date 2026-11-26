@@ -2,6 +2,7 @@
 
 import csv
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -70,23 +71,22 @@ def save_notes(session_dir: Path, notes: list[dict]) -> None:
     temporary.replace(path)
 
 
-def review_events(session_dir: Path, limit: int = 2000) -> list[dict]:
+def _iter_review_events(session_dir: Path):
     metadata_path = session_dir / "session_metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
     offset = float(metadata.get("screen_first_frame_timestamp_s") or 0)
     if "screen_capture_backend" not in metadata and 0 < offset < 0.1:
         offset = 0.35
-    result = []
     with (session_dir / "events.csv").open(encoding="utf-8", newline="") as source:
         for row in csv.DictReader(source):
-            if len(result) >= limit:
-                break
             kind = row.get("event_type", "")
             if kind not in ("mouse_click", "mouse_scroll", "key_press"):
                 continue
             try:
                 detail = json.loads(row.get("detail") or "{}")
-                seconds = max(0.0, float(row["timestamp_s"]) - offset)
+                seconds = float(row["timestamp_s"]) - offset
+                if not isinstance(detail, dict) or not math.isfinite(seconds) or seconds < 0:
+                    continue
             except (ValueError, TypeError, json.JSONDecodeError):
                 continue
             if kind == "mouse_click" and not detail.get("pressed", True):
@@ -95,9 +95,24 @@ def review_events(session_dir: Path, limit: int = 2000) -> list[dict]:
                      "button": str(detail.get("button", "")) if kind == "mouse_click" else ""}
             if kind == "mouse_click":
                 try:
-                    event["x"] = float(detail["x"])
-                    event["y"] = float(detail["y"])
+                    x, y = float(detail["x"]), float(detail["y"])
+                    if math.isfinite(x) and math.isfinite(y):
+                        event.update(x=x, y=y)
                 except (KeyError, TypeError, ValueError):
                     pass
-            result.append(event)
-    return result
+            yield event
+
+
+def review_events_page(session_dir: Path, cursor: int = 0, limit: int = 2000) -> dict:
+    """Page across valid, privacy-filtered events without silently truncating a session."""
+    from itertools import islice
+    if cursor < 0 or not 1 <= limit <= 5000:
+        raise ValueError("Invalid review page")
+    events = list(islice(_iter_review_events(session_dir), cursor, cursor + limit + 1))
+    has_more = len(events) > limit
+    return {"events": events[:limit], "next_cursor": cursor + limit if has_more else None}
+
+
+def review_events(session_dir: Path, limit: int | None = None) -> list[dict]:
+    from itertools import islice
+    return list(islice(_iter_review_events(session_dir), limit))

@@ -30,22 +30,30 @@ class SessionAnalyzer:
         events = self._load_events()
 
 
-        # Calculate Task Duration
-        task_duration_s = 0.0
-        if events:
-            timestamps = [e["timestamp_s"] for e in events if "timestamp_s" in e]
-            if timestamps:
-                task_duration_s = max(timestamps)
-
-        # Fallback to metadata ISO timestamps if event duration is minimal
-        if task_duration_s <= 0.0 and metadata.get("session_start_wall_clock") and metadata.get("session_end_wall_clock"):
-            from datetime import datetime
-            try:
-                t_start = datetime.fromisoformat(metadata["session_start_wall_clock"])
-                t_end = datetime.fromisoformat(metadata["session_end_wall_clock"])
-                task_duration_s = (t_end - t_start).total_seconds()
-            except Exception:
-                pass
+        # New recordings use explicit monotonic task boundaries, including idle time.
+        # Historical files cannot recover a precise end from input events alone.
+        start = metadata.get("task_start_timestamp_s")
+        end = metadata.get("task_end_timestamp_s")
+        bounded = all(isinstance(v, (int, float)) and math.isfinite(v) for v in (start, end)) and end >= start
+        if bounded:
+            task_duration_s = end - start
+            duration_source = "monotonic_task_boundaries"
+            events = [e for e in events if start <= e["timestamp_s"] <= end]
+        else:
+            task_duration_s = 0.0
+            duration_source = "legacy_wall_clock_estimate"
+            if metadata.get("session_start_wall_clock") and metadata.get("session_end_wall_clock"):
+                from datetime import datetime
+                try:
+                    task_duration_s = max(0.0, (
+                        datetime.fromisoformat(metadata["session_end_wall_clock"]) -
+                        datetime.fromisoformat(metadata["session_start_wall_clock"])
+                    ).total_seconds())
+                except (ValueError, TypeError):
+                    pass
+            if task_duration_s <= 0:
+                task_duration_s = max((e["timestamp_s"] for e in events), default=0.0)
+                duration_source = "legacy_last_event_estimate"
 
         mins = int(task_duration_s // 60)
         secs = task_duration_s % 60
@@ -122,6 +130,7 @@ class SessionAnalyzer:
             "task_label": metadata.get("task_label", ""),
             "session": metadata.get("session", ""),
             "session_label": metadata.get("session_label", metadata.get("session", "")),
+            "duration_source": duration_source,
             "task_duration_seconds": round(task_duration_s, 3),
             "task_duration_formatted": duration_formatted,
             "total_clicks": total_clicks,
@@ -143,8 +152,11 @@ class SessionAnalyzer:
 
         # Window switch metrics
         window_switches = self._load_window_switches()
-        # Subtract 1 because the first entry is the initial window (not a switch)
-        total_switches = max(len(window_switches) - 1, 0)
+        # The first entry is an initial state, even when it precedes task readiness.
+        switches = window_switches[1:]
+        if bounded:
+            switches = [e for e in switches if start <= float(e.get("timestamp_s", 0)) <= end]
+        total_switches = len(switches)
         unique_windows = set()
         for sw in window_switches:
             key = sw.get("process_name") or sw.get("window_title", "")
@@ -163,6 +175,8 @@ class SessionAnalyzer:
 
         # Web page visit & click metrics
         web_events = self._load_web_visits()
+        if bounded:
+            web_events = [e for e in web_events if start <= float(e.get("timestamp_s", 0)) <= end]
         unique_web_urls: set = set()
         unique_web_domains: set = set()
         web_page_visits = []
@@ -300,6 +314,7 @@ def batch_analyze_sessions(
         "task_label",
         "session_label",
         "task_duration_seconds",
+        "duration_source",
         "task_duration_formatted",
         "total_clicks",
         "left_clicks",

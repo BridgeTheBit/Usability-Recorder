@@ -1,5 +1,6 @@
 /* Session preview in the desktop WebEngine. Data is always scoped to one session. */
 let reviewData = null;
+let reviewLoadGeneration = 0;
 let reviewStart = null;
 let reviewEnd = null;
 let reviewSelectedNote = null;
@@ -113,6 +114,7 @@ function reviewDrawOverlay() {
 }
 
 async function loadReview() {
+  const generation = ++reviewLoadGeneration;
   const sid = document.getElementById('review-session-select').value;
   const content = document.getElementById('review-content');
   const message = document.getElementById('review-message');
@@ -129,13 +131,25 @@ async function loadReview() {
   if (!sid) return;
   try {
     const data = await api('GET', `/api/sessions/${encodeURIComponent(sid)}/review`);
-    if (sid !== document.getElementById('review-session-select').value) return;
+    if (generation !== reviewLoadGeneration) return;
     reviewData = {...data, sid};
+    let cursor = data.next_cursor;
+    while (cursor !== null && cursor !== undefined) {
+      message.textContent = `Loading session events (${reviewData.events.length})…`;
+      const page = await api('GET', `/api/sessions/${encodeURIComponent(sid)}/review?cursor=${cursor}`);
+      if (generation !== reviewLoadGeneration) return;
+      reviewData.events = reviewData.events.concat(page.events);
+      cursor = page.next_cursor;
+    }
     if (!data.has_video) { message.textContent = 'This session has no recording.'; return; }
     content.classList.remove('no-session');
     reviewRenderTimeline();
     reviewLoadPreview(sid);
-  } catch (error) { message.textContent = 'Could not load session review.'; }
+  } catch (error) {
+    if (generation === reviewLoadGeneration) {
+      reviewData = null; message.textContent = 'Could not load all session events. Select the session to retry.';
+    }
+  }
 }
 
 async function reviewLoadPreview(sid) {
@@ -155,8 +169,8 @@ async function reviewLoadPreview(sid) {
 
 function reviewRenderTimeline() {
   if (!reviewData) return;
-  const duration = reviewVideo.duration || Math.max(1, ...reviewData.events.map(e => e.time),
-    ...reviewData.notes.map(n => n.end));
+  const duration = reviewVideo.duration || reviewData.events.reduce((end, e) => Math.max(end, e.time),
+    reviewData.notes.reduce((end, n) => Math.max(end, n.end), 1));
   const root = document.getElementById('review-timeline');
   root.replaceChildren();
   const tracks = [

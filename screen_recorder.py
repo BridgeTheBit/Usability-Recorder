@@ -12,6 +12,7 @@ from typing import Optional
 import numpy as np
 from pynput.mouse import Controller as MouseController
 from ffmpeg_utils import find_ffmpeg
+from capture_timing import FirstFrameClock
 
 try:
     import cv2
@@ -48,6 +49,7 @@ class ScreenRecorder:
         self._first_frame_timestamp_s: Optional[float] = None
         self._capture_error: Optional[Exception] = None
         self._using_ffmpeg = False
+        self.timing_method = "capture_monotonic"
         self._mouse_controller = MouseController()
 
     @property
@@ -94,6 +96,8 @@ class ScreenRecorder:
 
         if mss is not None and cv2 is not None:
             try:
+                self._first_frame_event.clear()
+                self._first_frame_timestamp_s = None
                 self._start_mss_fallback()
                 if not self._first_frame_event.wait(timeout=10.0):
                     raise RuntimeError("The screen capture fallback did not produce a frame within 10 seconds.")
@@ -120,6 +124,7 @@ class ScreenRecorder:
 
     def stop(self) -> None:
         """Gracefully stop recording and finalize video container header (MOOV atom)."""
+        self._stop_timestamp = time.monotonic()
         self._stop_event.set()
         errors: list[str] = []
 
@@ -135,7 +140,7 @@ class ScreenRecorder:
         if self._fallback_thread is not None:
             self._fallback_thread.join(timeout=5)
             if self._fallback_thread.is_alive():
-                errors.append("The screen-capture thread did not stop within 5 seconds.")
+                raise RuntimeError("The screen-capture thread did not stop within 5 seconds.")
             self._fallback_thread = None
 
         if self._writer is not None:
@@ -173,7 +178,10 @@ class ScreenRecorder:
             "-y",
             "-hide_banner",
             "-loglevel",
-            "error",
+            "info",
+            "-copyts",
+            "-use_wallclock_as_timestamps",
+            "1",
             "-f",
             "gdigrab" if os.name == "nt" else "x11grab",
             "-framerate",
@@ -181,26 +189,33 @@ class ScreenRecorder:
             "-draw_mouse",
             "1",
             "-i",
-            "desktop" if os.name == "nt" else ":0.0",
+            "desktop" if os.name == "nt" else os.environ.get("DISPLAY", ":0.0"),
+            "-vf",
+            "showinfo,setpts=PTS-STARTPTS",
+            "-fps_mode",
+            "cfr",
+            "-r",
+            str(self.fps),
             "-c:v",
             "libx264",
             "-preset",
             "ultrafast",
             "-pix_fmt",
             "yuv420p",
-            "-progress",
-            "pipe:1",
-            "-stats_period",
-            "0.05",
             "-nostats",
             str(self.output_path),
         ]
 
+        before = time.monotonic()
+        wall = time.time()
+        after = time.monotonic()
+        self._frame_clock = FirstFrameClock((before + after) / 2 - wall, self.t0)
+        self.timing_method = "ffmpeg_input_wallclock_pts"
         self._process = subprocess.Popen(
             command,
             stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
             creationflags=creation_flags,
@@ -214,22 +229,21 @@ class ScreenRecorder:
         self._ffmpeg_progress_thread.start()
 
     def _read_ffmpeg_progress(self, process: subprocess.Popen[str]) -> None:
-        """Record t0 offset when FFmpeg reports that it encoded its first frame."""
+        """Read the first captured frame's input PTS, not log arrival time."""
         try:
-            if process.stdout is None:
+            if process.stderr is None:
                 return
-            for line in process.stdout:
-                if self._first_frame_timestamp_s is not None or not line.startswith("frame="):
-                    continue
-                try:
-                    frame_count = int(line.partition("=")[2].strip())
-                except ValueError:
-                    continue
-                if frame_count > 0:
-                    self._first_frame_timestamp_s = time.monotonic() - (self.t0 or 0.0)
+            for line in process.stderr:
+                if self._first_frame_timestamp_s is not None:
+                    continue  # Continue draining stderr to prevent pipe blockage.
+                offset = self._frame_clock.consume(line)
+                if offset is not None:
+                    if not 0 <= offset <= time.monotonic() - self.t0 + 1:
+                        raise RuntimeError("FFmpeg supplied an invalid capture timestamp.")
+                    self._first_frame_timestamp_s = offset
                     self._first_frame_event.set()
         except Exception as exc:
-            self.logger.warning("Could not read FFmpeg progress: %s", exc)
+            self.logger.warning("Could not read FFmpeg capture timestamp: %s", exc)
         finally:
             if self._first_frame_timestamp_s is None:
                 self._first_frame_event.set()
@@ -268,9 +282,9 @@ class ScreenRecorder:
                     pass
             if self._ffmpeg_progress_thread is not None:
                 self._ffmpeg_progress_thread.join(timeout=2)
-            if process.stdout is not None:
+            if process.stderr is not None:
                 try:
-                    process.stdout.close()
+                    process.stderr.close()
                 except OSError:
                     pass
             if self._ffmpeg_progress_thread is not None:
@@ -280,59 +294,62 @@ class ScreenRecorder:
             self._process = None
 
     def _start_mss_fallback(self) -> None:
+        self.timing_method = "capture_monotonic"
+        self._fallback_thread = threading.Thread(target=self._fallback_loop, daemon=True)
+        self._fallback_thread.start()
+
+    def _fallback_loop(self) -> None:
+        # MSS resources must be created and used on the same thread.
+        origin = None
+        written = 0
+        previous = None
         try:
             self._mss = mss.MSS()
             if len(self._mss.monitors) < 2:
                 raise RuntimeError("No desktop monitor is available for capture.")
             self._monitor = self._mss.monitors[1]
-        except Exception as exc:
-            if self._mss is not None:
-                self._mss.close()
-                self._mss = None
-            raise RuntimeError(f"Could not initialize desktop capture: {exc}") from exc
-
-        width = int(self._monitor["width"])
-        height = int(self._monitor["height"])
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        self._writer = cv2.VideoWriter(
-            str(self.output_path),
-            fourcc,
-            float(self.fps),
-            (width, height),
-        )
-        if not self._writer.isOpened():
-            self._writer.release()
-            self._writer = None
-            self._mss.close()
-            self._mss = None
-            raise RuntimeError("Unable to open OpenCV VideoWriter for screen capture fallback.")
-
-        self._fallback_thread = threading.Thread(target=self._fallback_loop, daemon=True)
-        self._fallback_thread.start()
-
-    def _fallback_loop(self) -> None:
-        frame_interval = 1.0 / self.fps
-        try:
+            self._writer = cv2.VideoWriter(
+                str(self.output_path), cv2.VideoWriter_fourcc(*"mp4v"),
+                float(self.fps), (int(self._monitor["width"]), int(self._monitor["height"])),
+            )
+            if not self._writer.isOpened():
+                raise RuntimeError("Unable to open OpenCV VideoWriter.")
             while not self._stop_event.is_set():
-                t_start = time.monotonic()
-                if self._mss is None or self._monitor is None or self._writer is None:
-                    raise RuntimeError("Desktop capture resources are not initialized.")
+                captured_at = time.monotonic()
                 frame = self._mss.grab(self._monitor)
-                frame_bgr = cv2.cvtColor(np.asarray(frame), cv2.COLOR_BGRA2BGR)
-                frame_bgr = self._draw_cursor_overlay(frame_bgr)
-                self._writer.write(frame_bgr)
-                if self._first_frame_timestamp_s is None:
-                    self._first_frame_timestamp_s = time.monotonic() - (self.t0 or 0.0)
-                    self._first_frame_event.set()
-
-                elapsed = time.monotonic() - t_start
-                if self._stop_event.wait(timeout=max(0.0, frame_interval - elapsed)):
-                    break
+                frame_bgr = self._draw_cursor_overlay(cv2.cvtColor(np.asarray(frame), cv2.COLOR_BGRA2BGR))
+                if origin is None:
+                    origin = captured_at
+                    self._first_frame_timestamp_s = origin - self.t0
+                slot = int((captured_at - origin) * self.fps)
+                # Preserve elapsed time under load; hold the previous frame in missed slots.
+                while written < slot:
+                    self._writer.write(previous)
+                    written += 1
+                if written == slot:
+                    self._writer.write(frame_bgr)
+                    previous = frame_bgr
+                    written += 1
+                self._first_frame_event.set()
+                delay = origin + written / self.fps - time.monotonic()
+                self._stop_event.wait(max(0.0, delay))
+            if origin is not None:
+                end = getattr(self, "_stop_timestamp", time.monotonic())
+                while written / self.fps < end - origin:
+                    self._writer.write(previous)
+                    written += 1
         except Exception as exc:
             self._capture_error = exc
             self._first_frame_event.set()
             self._stop_event.set()
             self.logger.exception("OpenCV desktop capture stopped after an error.")
+        finally:
+            if self._writer is not None:
+                self._writer.release()
+                self._writer = None
+            if self._mss is not None:
+                self._mss.close()
+                self._mss = None
 
     def _draw_cursor_overlay(self, frame_bgr: np.ndarray) -> np.ndarray:
         """Draw a small visible marker at the current cursor position."""

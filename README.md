@@ -1,4 +1,4 @@
-# Atlas — Usability Recorder (v1.2.6)
+# Atlas — Usability Recorder (v1.2.7)
 
 A hybrid usability testing recorder combining a minimal desktop control widget (Qt/PySide6) with a modern local web administration panel (Flask + Vanilla HTML5/CSS3 SPA). It synchronizes screen recording, input events (mouse/keyboard), active OS windows, browser-specific page interactions (clicks, menus, buttons via extension), and Pupil Labs eye trackers under a single monotonic clock reference.
 
@@ -54,7 +54,7 @@ sessions/P001_20260816_120000/
 
 ## 🚀 Windows installation
 
-1. Download `AtlasSetup-1.2.6-windows-x64.exe` from [GitHub Releases](https://github.com/BridgeTheBit/Usability-Recorder/releases) and run it. It installs for the current Windows user and does not require Python, command-line setup, or administrator access.
+1. Download `AtlasSetup-1.2.7-windows-x64.exe` from [GitHub Releases](https://github.com/BridgeTheBit/Usability-Recorder/releases) and run it. It installs for the current Windows user and does not require Python, command-line setup, or administrator access.
 2. Launch **Atlas** from the Start menu. Settings, recordings, and exports are kept in the `data` folder beside the installed app, so choosing D: stores them on D:. Existing default session data is moved from the previous `%LOCALAPPDATA%\Atlas\sessions` location on first launch.
 3. The installer places FFmpeg at `<Atlas install folder>\ffmpeg\ffmpeg.exe`. Atlas uses that executable for screen recording and click-overlay processing; no separate FFmpeg install or PATH setup is needed.
 
@@ -94,6 +94,24 @@ Key names and typed text are never returned by the review API.
 ---
 
 ## 📋 Version History (Changelog)
+
+### v1.2.7 - Recording timing and complete session review
+- Task duration uses monotonic boundaries from recording readiness to the stop request,
+  including idle periods and excluding initialization and shutdown. Input metrics use
+  the same interval. Historical sessions are explicitly labeled as estimates in exports.
+- FFmpeg alignment uses the first input frame's integer wall-clock PTS, mapped to the
+  session monotonic clock, rather than asynchronous progress-message arrival time.
+- OpenCV fallback creates capture resources on its worker thread and duplicates held
+  frames for missed time slots instead of shortening slow recordings.
+- Review loads every page of events, including sessions exceeding 2,000 interactions.
+- Standalone click processing applies the recorded video offset. Pre-video events are
+  excluded from overlays instead of being moved to the first frame.
+- Nine regression tests cover idle tasks, stop boundaries, pagination, privacy, slow
+  capture and FFmpeg timestamp parsing (including a real FFmpeg smoke test).
+
+Timing remains limited by capture sampling and device latency. Validate synchronization
+on the study workstation before collecting research data; this is not hardware-level
+synchronization. Existing videos cannot have their original capture timing reconstructed.
 
 ### v1.2.6 - Refined session preview
 - Add a light theme, video-side session playlist, compact event tracks, and player controls.

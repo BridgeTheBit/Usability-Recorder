@@ -262,7 +262,7 @@ class VideoProcessorRunner:
                             # Subtract offset so click appears on the correct video frame
                             ts = float(row["timestamp_s"]) - video_offset
                             if ts < 0:
-                                ts = 0.0  # clamp negative values (very early clicks)
+                                continue  # Events before video capture have no corresponding frame.
                             clicks.append({
                                 "start":  ts,
                                 "end":    ts + 0.8,
@@ -614,14 +614,18 @@ class SettingsServer:
             directory = review_directory(session_id)
             if directory is None:
                 return jsonify({"error": "Session not found"}), 404
-            from review import review_events, load_notes
+            from review import review_events_page, load_notes
             try:
-                events = review_events(directory)
+                cursor = int(request.args.get("cursor", 0))
+                limit = int(request.args.get("limit", 2000))
+                page = review_events_page(directory, cursor, limit)
+            except ValueError:
+                return jsonify({"error": "Invalid review pagination"}), 400
             except FileNotFoundError:
-                events = []
+                page = {"events": [], "next_cursor": None}
             metadata_path = directory / "session_metadata.json"
             metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
-            return jsonify({"events": events, "notes": load_notes(directory),
+            return jsonify({**page, "notes": load_notes(directory),
                             "fps": float(metadata.get("fps") or 30),
                             "has_video": (directory / "screen_recording.mp4").is_file()})
 

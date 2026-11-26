@@ -289,7 +289,7 @@ class RecorderWidget(QWidget):
             )
 
             session_dir = str(getattr(self.controller, "session_dir", ""))
-            self._state.set_recording(True, session_dir, metadata.get("t0_monotonic"))
+            self._state.set_recording(True, session_dir, (metadata.get("t0_monotonic") or 0) + metadata.get("task_start_timestamp_s", 0))
             self._start_elapsed_timer()
 
             self._rec_btn.setStyleSheet(self._BTN_REC)

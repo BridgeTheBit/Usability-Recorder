@@ -59,7 +59,12 @@ class VideoProcessorThread(QThread):
             return
 
         self.status.emit("Parsing click events...")
+        metadata_path = self.session_dir / "session_metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+        offset = float(metadata.get("screen_first_frame_timestamp_s") or 0)
         clicks = self._parse_clicks(events_csv)
+        clicks = [{**c, "start": c["start"] - offset, "end": c["end"] - offset}
+                  for c in clicks if c["start"] >= offset]
         
         self.status.emit("Processing video frames...")
         cap = cv2.VideoCapture(str(original_video))

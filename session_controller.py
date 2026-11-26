@@ -171,6 +171,7 @@ class SessionController:
         first_frame_ts = self.screen_recorder.get_first_frame_timestamp_s()
         self.metadata["screen_first_frame_timestamp_s"] = first_frame_ts
         self.metadata["screen_capture_backend"] = self.screen_recorder.backend
+        self.metadata["screen_timing_method"] = self.screen_recorder.timing_method
         self.logger.info("Screen recorder started -> screen_recording.mp4 (first_frame_ts=%.6fs)", first_frame_ts or 0.0)
 
         # 3. Eye Tracker Trigger (Pupil Capture ZMQ / Realtime API)
@@ -225,6 +226,7 @@ class SessionController:
             str((self.session_dir / "session_metadata.json").resolve()),
             str((self.session_dir / "session.log").resolve()),
         ]
+        self.metadata["task_start_timestamp_s"] = time.monotonic() - self.t0
         self._write_metadata()
         return self.metadata
 
@@ -232,6 +234,10 @@ class SessionController:
         """Stop every module, retain cleanup errors, and finalize session metadata."""
         if not self._session_active:
             return {}
+        self.metadata["task_end_timestamp_s"] = time.monotonic() - self.t0
+        self.metadata["task_duration_seconds"] = max(
+            0.0, self.metadata["task_end_timestamp_s"] - self.metadata["task_start_timestamp_s"]
+        )
         self._session_active = False
         cleanup_errors: list[str] = []
         pupil_meta: dict = {}
@@ -288,6 +294,7 @@ class SessionController:
 
         try:
             if self.session_dir is not None:
+                self._write_metadata()  # Analysis must see the finalized task boundaries.
                 metrics = SessionAnalyzer(self.session_dir).analyze()
                 self.metadata["analysis_metrics"] = metrics
                 batch_analyze_sessions(self.session_root, get_app_data_dir() / "sessions_summary.csv")

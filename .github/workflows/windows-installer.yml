@@ -34,6 +34,13 @@ jobs:
       - name: Bundle FFmpeg beside Atlas
         run: python packaging/bundle_ffmpeg.py
 
+      - name: Run recording regression tests
+        shell: pwsh
+        run: |
+          $env:PATH = "$pwd/dist/Atlas/ffmpeg;$env:PATH"
+          python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Confirm desktop resources are packaged
         shell: pwsh
         run: |
@@ -55,7 +62,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist/installer | Out-Null
           $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          $version = "1.2.6"
+          $version = "1.2.7"
           if ("${{ github.ref_name }}" -match '^v(\d+\.\d+\.\d+)$') { $version = $Matches[1] }
           & $compiler "/DAppVersion=$version" packaging/Atlas.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
