@@ -307,6 +307,7 @@ input:checked+.slider::before{transform:translateX(18px)}
       </div>
     </div>
     <div style="display:flex;gap:10px;align-items:center">
+      <label for="minimize_on_start">Minimize when recording starts</label><label class="toggle"><input type="checkbox" id="minimize_on_start" checked/><span class="slider"></span></label>
       <button class="btn btn-primary" id="record-action" onclick="recordAction()">Start Recording</button>
     </div>
   </div>
@@ -613,6 +614,7 @@ async function loadConfig() {
     set('session_label',  cfg.session_label);
     set('fps',            cfg.fps);
     set('hotkey',         cfg.hotkey);
+    set('minimize_on_start', cfg.minimize_on_start ?? true);
     set('privacy_mode',   cfg.privacy_mode);
     set('session_root',   cfg.session_root);
     set('tracking_mode',  cfg.tracking_mode);
@@ -630,6 +632,7 @@ async function recordAction() {
 }
 async function saveRecordingConfig() {
   const body = {
+    minimize_on_start: document.getElementById('minimize_on_start').checked,
     participant_id: document.getElementById('participant_id').value.trim(),
     task_label:     document.getElementById('task_label').value.trim(),
     session_label:  document.getElementById('session_label').value.trim(),

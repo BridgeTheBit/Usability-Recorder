@@ -131,8 +131,9 @@ class CaptureTests(unittest.TestCase):
         result = subprocess.run(command, capture_output=True, text=True, timeout=15, check=True)
         offsets = [value for line in result.stderr.splitlines() if (value := clock.consume(line)) is not None]
         self.assertEqual(len(offsets), 1)
-        self.assertGreaterEqual(offsets[0], -.002)
-        self.assertLessEqual(offsets[0], time.monotonic() - before)
+        tolerance = time.get_clock_info('monotonic').resolution + .002
+        self.assertGreaterEqual(offsets[0], -tolerance)
+        self.assertLessEqual(offsets[0], time.monotonic() - before + tolerance)
         self.assertIn('time=00:00:00.00', result.stderr)
 
     def test_slow_fallback_preserves_elapsed_time_and_thread_ownership(self):

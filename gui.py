@@ -209,7 +209,8 @@ class RecorderWidget(ControlPanelWindow):
 
             self._update_status_label()
 
-            self.showMinimized()
+            if cfg.get("minimize_on_start", True):
+                self.showMinimized()
 
         except Exception as exc:
             QMessageBox.critical(self, "Session Startup Error", str(exc))

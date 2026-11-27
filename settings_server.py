@@ -335,6 +335,7 @@ class AppState:
         "session_root":    "sessions",
         "fps":             15,
         "hotkey":          "Ctrl+Alt+F9",
+        "minimize_on_start": True,
         "privacy_mode":    False,
         "tracking_mode":   "disabled",
         "web_tracker_port": 9877,

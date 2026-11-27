@@ -5,6 +5,7 @@
   "session_root": "sessions",
   "fps": 30,
   "hotkey": "Ctrl+Alt+F9",
+  "minimize_on_start": true,
   "privacy_mode": false,
   "tracking_mode": "disabled",
   "web_tracker_port": 9877,
