@@ -609,6 +609,14 @@ class SettingsServer:
             candidate = (root / session_id).resolve()
             return candidate if candidate.parent == root and candidate.is_dir() else None
 
+        @app.route("/api/sessions/<session_id>/mouse-positions")
+        def session_mouse_positions(session_id):
+            directory = review_directory(session_id)
+            if directory is None or not (directory / "events.csv").is_file():
+                return jsonify([])
+            from review import mouse_positions
+            return jsonify(mouse_positions(directory))
+
         @app.route("/api/sessions/<session_id>/thumbnail")
         def session_thumbnail(session_id):
             directory = review_directory(session_id)

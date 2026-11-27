@@ -96,6 +96,70 @@ function reviewShowComment() {
   reviewBubbleTimer = setTimeout(() => { bubble.hidden = true; }, 5000);
 }
 
+async function toggleMotion(button) {
+  const session = reviewData;
+  if (!session) return;
+  const enabled = button.getAttribute('aria-pressed') !== 'true';
+  button.setAttribute('aria-pressed', String(enabled));
+  try {
+    if (enabled && !session.positions) {
+      session.motionRequest ??= api('GET', '/api/sessions/'+encodeURIComponent(session.sid)+'/mouse-positions');
+      const points = await session.motionRequest;
+      if (reviewData !== session) return;
+      session.positions = points;
+      if (!points.length) toast('No mouse movement samples in this session.');
+    }
+    reviewDrawOverlay();
+  } catch (error) {
+    session.motionRequest = null;
+    if (reviewData === session) {
+      button.setAttribute('aria-pressed','false');
+      toast('Could not load mouse positions','error');
+    }
+  }
+}
+
+function drawMotion(ctx, left, top, scale) {
+  const points = reviewData.positions;
+  if (!points?.length) return;
+  const g = reviewData.geometry || {};
+  const w = g.width || reviewVideo.videoWidth, h = g.height || reviewVideo.videoHeight;
+  const width = reviewVideo.videoWidth * scale, height = reviewVideo.videoHeight * scale;
+  if (document.querySelector('[data-motion="heat"]').getAttribute('aria-pressed') === 'true') {
+    if (!reviewData.motionMap) {
+      const map = document.createElement('canvas');
+      map.width = 96; map.height = Math.max(1, Math.round(96*h/w));
+      const painter = map.getContext('2d');
+      const counts = new Uint32Array(map.width*map.height);
+      let peak = 0;
+      for (const [,x,y] of points) {
+        const col = Math.floor((x-(g.left||0))*map.width/w), row = Math.floor((y-(g.top||0))*map.height/h);
+        if (col>=0 && col<map.width && row>=0 && row<map.height) peak=Math.max(peak,++counts[row*map.width+col]);
+      }
+      counts.forEach((n,i)=>{
+        if (!n) return;
+        const strength=Math.log1p(n)/Math.log1p(peak);
+        painter.fillStyle='hsla('+((1-strength)*55)+',100%,52%,'+(.25+.55*strength)+')';
+        painter.fillRect(i%map.width,Math.floor(i/map.width),1,1);
+      });
+      reviewData.motionMap=map;
+    }
+    ctx.drawImage(reviewData.motionMap,left,top,width,height);
+  }
+  if (document.querySelector('[data-motion="path"]').getAttribute('aria-pressed') === 'true') {
+    const now=reviewVideo.currentTime;
+    let lo=0, hi=points.length;
+    while(lo<hi){const mid=Math.floor((lo+hi)/2); if(points[mid][0]<now-3) lo=mid+1; else hi=mid;}
+    ctx.beginPath();
+    for(let i=lo;i<points.length && points[i][0]<=now;i++){
+      const [,x,y]=points[i];
+      const px=left+(x-(g.left||0))*width/w, py=top+(y-(g.top||0))*height/h;
+      if(i===lo) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    }
+    ctx.lineWidth=3; ctx.strokeStyle='#28d8ff'; ctx.stroke();
+  }
+}
+
 function reviewDrawOverlay() {
   const canvas = document.getElementById('review-overlay');
   const bounds = canvas.getBoundingClientRect();
@@ -108,6 +172,7 @@ function reviewDrawOverlay() {
   const scale = (playbackFit === 'cover' ? Math.max : Math.min)(bounds.width / reviewVideo.videoWidth, bounds.height / reviewVideo.videoHeight);
   const left = (bounds.width - reviewVideo.videoWidth * scale) / 2;
   const top = (bounds.height - reviewVideo.videoHeight * scale) / 2;
+  drawMotion(ctx,left,top,scale);
   if (showMouseHeat) {
     const g = reviewData.geometry || {};
     for (const e of reviewData.events) {
@@ -137,6 +202,7 @@ function reviewDrawOverlay() {
 }
 
 async function loadReview() {
+  document.querySelectorAll('[data-motion]').forEach(b=>b.setAttribute('aria-pressed','false'));
   const generation = ++reviewLoadGeneration;
   const sid = document.getElementById('review-session-select').value;
   const content = document.getElementById('review-content');

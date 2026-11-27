@@ -423,7 +423,7 @@ input:checked+.slider::before{transform:translateX(18px)}
           <button class="btn btn-primary btn-sm" onclick="reviewAddNote()">Save comment</button>
           <button class="btn btn-ghost btn-sm" onclick="reviewCloseNoteEditor()">Cancel</button>
         </div>
-        <div class="review-workspace" id="review-timeline"></div><div class="map-tools"><button onclick="showMouseHeat=!showMouseHeat; this.setAttribute('aria-pressed',showMouseHeat); reviewDrawOverlay()">Mouse heatmap</button><button disabled title="This recorder stores eye tracker triggers only">Eye tracker heatmap</button><button onclick="this.closest('#review-content').classList.toggle('auto-hide')">Auto-hide</button></div>
+        <div class="review-workspace" id="review-timeline"></div><div class="map-tools"><button onclick="showMouseHeat=!showMouseHeat; this.setAttribute('aria-pressed',showMouseHeat); reviewDrawOverlay()">Click heatmap</button><button aria-pressed="false" data-motion="path" onclick="toggleMotion(this)">Mouse path</button><button aria-pressed="false" data-motion="heat" onclick="toggleMotion(this)">Mouse position heatmap</button><button disabled title="This recorder stores eye tracker triggers only">Eye tracker heatmap</button><button onclick="this.closest('#review-content').classList.toggle('auto-hide')">Auto-hide</button></div>
       </div>
       <h3>Session Insights</h3><div id="insights"><div>Total Clicks<b>—</b></div><div>Total Fixations<b>—</b></div><div>Recording Duration<b>—</b></div><div>Scroll Events<b>—</b></div><div>Keystrokes<b>—</b></div><div>Comments<b>—</b></div></div><div id="review-message" style="font-size:13px;color:var(--text3)"></div>
     </div>

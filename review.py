@@ -71,7 +71,7 @@ def save_notes(session_dir: Path, notes: list[dict]) -> None:
     temporary.replace(path)
 
 
-def _iter_review_events(session_dir: Path):
+def _iter_review_events(session_dir: Path, motion=False):
     metadata_path = session_dir / "session_metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
     offset = float(metadata.get("screen_first_frame_timestamp_s") or 0)
@@ -80,7 +80,7 @@ def _iter_review_events(session_dir: Path):
     with (session_dir / "events.csv").open(encoding="utf-8", newline="") as source:
         for row in csv.DictReader(source):
             kind = row.get("event_type", "")
-            if kind not in ("mouse_click", "mouse_scroll", "key_press"):
+            if kind not in (("mouse_move",) if motion else ("mouse_click", "mouse_scroll", "key_press")):
                 continue
             try:
                 detail = json.loads(row.get("detail") or "{}")
@@ -93,7 +93,7 @@ def _iter_review_events(session_dir: Path):
                 continue
             event = {"time": round(seconds, 3), "type": kind,
                      "button": str(detail.get("button", "")) if kind == "mouse_click" else ""}
-            if kind == "mouse_click":
+            if kind in ("mouse_move", "mouse_click"):
                 try:
                     x, y = float(detail["x"]), float(detail["y"])
                     if math.isfinite(x) and math.isfinite(y):
@@ -116,3 +116,8 @@ def review_events_page(session_dir: Path, cursor: int = 0, limit: int = 2000) ->
 def review_events(session_dir: Path, limit: int | None = None) -> list[dict]:
     from itertools import islice
     return list(islice(_iter_review_events(session_dir), limit))
+
+
+def mouse_positions(session_dir: Path):
+    return [[e["time"], e["x"], e["y"]] for e in _iter_review_events(session_dir, motion=True)
+            if "x" in e and "y" in e]
