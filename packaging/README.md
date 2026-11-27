@@ -18,7 +18,7 @@ New-Item -ItemType Directory -Force dist\installer | Out-Null
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\Atlas.iss
 ```
 
-The supplied transparent PNG is used for the UI and converted to a multi-size Windows ICO for the executable and installer. The FFmpeg executable is placed at `dist/Atlas/ffmpeg/ffmpeg.exe` and carried into the same relative path under the install folder. The installer is written to `dist/installer/AtlasSetup-1.3.2-windows-x64.exe` by default. Tagged builds use the version from the tag.
+The supplied transparent PNG is used for the UI and converted to a multi-size Windows ICO for the executable and installer. The FFmpeg executable is placed at `dist/Atlas/ffmpeg/ffmpeg.exe` and carried into the same relative path under the install folder. The installer is written to `dist/installer/AtlasSetup-1.3.3-windows-x64.exe` by default. Tagged builds use the version from the tag.
 
 ## Automated release build
 

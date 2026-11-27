@@ -124,7 +124,7 @@ input:checked+.slider::before{transform:translateX(18px)}
 .badge-warn{background:rgba(245,158,11,.12);color:var(--warn)}
 .sess-detail{display:none;padding:16px 14px;background:rgba(255,255,255,.02);border-bottom:1px solid var(--border)}
 .sess-detail.open{display:block}
-.sess-detail-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:14px}
+.sess-detail-grid{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px}
 .sess-metric{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px}
 .sess-metric .mv{font-size:18px;font-weight:700;color:var(--text)}
 .sess-metric .ml{font-size:11px;color:var(--text3);margin-top:2px}
@@ -208,6 +208,18 @@ input:checked+.slider::before{transform:translateX(18px)}
 [data-theme=light] :is(.map-tools button,.playback-head button){background:var(--surface2);color:var(--text);border-color:var(--border2)}
 [data-theme=light] .map-tools [aria-pressed=true]{background:#d2e8ff;color:#123d65}
 #review-card:fullscreen{width:100vw;height:100vh;box-sizing:border-box;background:var(--bg);overflow:auto}
+.sess-detail-grid .sess-metric{flex:0 1 205px}
+.sess-detail-grid .session-id-card{flex:0 0 auto;width:max-content;min-width:205px;overflow-x:auto}
+.session-id-card .mv{white-space:nowrap}
+#review-content:fullscreen{box-sizing:border-box;width:100vw;height:100vh;padding:0;gap:0;background:var(--bg)}
+#review-content:fullscreen .review-playlist,#review-content:fullscreen .map-tools{display:none}
+#review-content:fullscreen .review-stage{display:flex;max-height:none}
+#review-content:fullscreen .review-video-wrap{flex:1;border-radius:0}
+#review-content:fullscreen :is(.review-workspace,.review-toolbar){position:static;margin:0;visibility:visible}
+#review-content:fullscreen .review-workspace{order:1;max-height:none}
+#review-content:fullscreen .review-toolbar{order:2}
+.exit-playback{display:none}
+#review-content:fullscreen .exit-playback{display:inline-block}
 </style>
 </head>
 <body>
@@ -397,7 +409,7 @@ input:checked+.slider::before{transform:translateX(18px)}
 
   <div class="page" id="page-review">
     <div class="card" id="review-card">
-      <div class="card-title playback-head">Playback <select aria-label="Video fit" onchange="setPlaybackFit(this.value)"><option value="contain">Fit to window</option><option value="cover">Fill window</option></select><button aria-label="Fullscreen" onclick="document.fullscreenElement ? document.exitFullscreen() : document.getElementById('review-card').requestFullscreen().catch(()=>toast('Fullscreen unavailable','error'))">⛶</button></div>
+      <div class="card-title playback-head">Playback <select aria-label="Video fit" onchange="setPlaybackFit(this.value)"><option value="contain">Fit to window</option><option value="cover">Fill window</option></select><button aria-label="Fullscreen" onclick="document.fullscreenElement ? document.exitFullscreen() : document.getElementById('review-content').requestFullscreen().catch(()=>toast('Fullscreen unavailable','error'))">⛶</button></div>
       <select id="review-session-select" onchange="loadReview()" hidden><option value="">— select a session —</option></select>
       <div id="review-content" class="no-session">
         <div class="review-stage">
@@ -413,7 +425,7 @@ input:checked+.slider::before{transform:translateX(18px)}
             <div id="review-playlist-items"></div>
           </div>
         </div>
-        <div class="review-toolbar">
+        <div class="review-toolbar"><button class="review-player-button exit-playback" aria-label="Exit fullscreen" title="Exit fullscreen" onclick="document.exitFullscreen()">⛶</button>
           <button class="review-player-button" onclick="reviewSkip(-5)" title="Back 5 seconds" aria-label="Back 5 seconds">⏪</button>
           <button class="review-player-button" onclick="reviewStep(-1)" title="Previous frame" aria-label="Previous frame">⏮</button>
           <button class="review-player-button primary" id="review-play" onclick="reviewTogglePlay()" title="Play or pause" aria-label="Play or pause">▶</button>
@@ -718,7 +730,7 @@ function renderSessions() {
       s.has_events && '<span class="badge badge-warn">⌨ Events</span>',
     ].filter(Boolean).join(' ');
     const dRows = Object.entries({'Duration':dur,'Clicks':clicks,'Keystrokes':m.total_keystrokes??'—','ID':s.id})
-      .map(([k,v])=>`<div class="sess-metric"><div class="mv">${v}</div><div class="ml">${k}</div></div>`).join('');
+      .map(([k,v])=>`<div class="sess-metric ${k==='ID'?'session-id-card':''}"><div class="mv">${v}</div><div class="ml">${k}</div></div>`).join('');
     return `
       <tr onclick="toggleDetail(${i})">
         <td><span class="sess-id">${s.id}</span></td>
