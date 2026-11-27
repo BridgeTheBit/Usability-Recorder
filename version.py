@@ -4,7 +4,7 @@ import json
 import time
 from urllib.request import Request, urlopen
 
-VERSION = "1.2.7"
+VERSION = "1.3.0"
 _cached = None
 _expires = 0.0
 

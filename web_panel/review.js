@@ -1,4 +1,11 @@
 /* Session preview in the desktop WebEngine. Data is always scoped to one session. */
+let showMouseHeat = false;
+let playbackFit = 'contain';
+function setPlaybackFit(value) {
+  playbackFit = value;
+  reviewVideo.style.objectFit = value;
+  reviewDrawOverlay();
+}
 let reviewData = null;
 let reviewLoadGeneration = 0;
 let reviewStart = null;
@@ -20,6 +27,9 @@ function reviewUpdateTime() {
   document.querySelectorAll('.review-playhead').forEach(line => {
     line.style.left = `${Math.min(100, reviewVideo.currentTime / (reviewVideo.duration || 1) * 100)}%`;
   });
+  const m = reviewData?.metrics || {};
+  const counts = [m.total_clicks, null, Number.isFinite(reviewVideo.duration) ? reviewClock(reviewVideo.duration).split('.')[0] : null, m.mouse_scrolls_count, m.total_keystrokes, reviewData?.notes.length];
+  document.querySelectorAll('#insights b').forEach((el,i)=>el.textContent=counts[i] ?? '—');
   reviewDrawOverlay();
   reviewShowComment();
 }
@@ -95,16 +105,29 @@ function reviewDrawOverlay() {
   const ctx = canvas.getContext('2d');
   ctx.scale(scaleFactor, scaleFactor);
   if (!reviewData || !reviewVideo.videoWidth || !reviewVideo.videoHeight) return;
-  const scale = Math.min(bounds.width / reviewVideo.videoWidth, bounds.height / reviewVideo.videoHeight);
+  const scale = (playbackFit === 'cover' ? Math.max : Math.min)(bounds.width / reviewVideo.videoWidth, bounds.height / reviewVideo.videoHeight);
   const left = (bounds.width - reviewVideo.videoWidth * scale) / 2;
   const top = (bounds.height - reviewVideo.videoHeight * scale) / 2;
+  if (showMouseHeat) {
+    const g = reviewData.geometry || {};
+    for (const e of reviewData.events) {
+      if (e.type !== 'mouse_click' || !Number.isFinite(e.x) || !Number.isFinite(e.y)) continue;
+      const x = left + (e.x-(g.left||0))*reviewVideo.videoWidth*scale/(g.width||reviewVideo.videoWidth);
+      const y = top + (e.y-(g.top||0))*reviewVideo.videoHeight*scale/(g.height||reviewVideo.videoHeight);
+      const spot = ctx.createRadialGradient(x,y,0,x,y,24);
+      spot.addColorStop(0,'rgba(255,108,30,.5)'); spot.addColorStop(.5,'rgba(254,209,40,.22)'); spot.addColorStop(1,'rgba(0,200,230,0)');
+      ctx.fillStyle=spot; ctx.fillRect(x-24,y-24,48,48);
+    }
+  }
   const now = reviewVideo.currentTime;
   reviewData.events.filter(e => e.type === 'mouse_click' && Number.isFinite(e.x) &&
     Number.isFinite(e.y) && now >= e.time && now <= e.time + 0.7).forEach(e => {
     const button = e.button.toLowerCase();
     const kind = button.includes('right') ? 'R' : button.includes('middle') ? 'M' : 'L';
     const color = kind === 'R' ? '#ef6c78' : kind === 'M' ? '#c890f3' : '#50a4ff';
-    const x = left + e.x * scale, y = top + e.y * scale;
+    const g = reviewData.geometry || {};
+    const x = left + (e.x - (g.left || 0)) * reviewVideo.videoWidth * scale / (g.width || reviewVideo.videoWidth);
+    const y = top + (e.y - (g.top || 0)) * reviewVideo.videoHeight * scale / (g.height || reviewVideo.videoHeight);
     const radius = 19 + (now - e.time) * 17;
     ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke();

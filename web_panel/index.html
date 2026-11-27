@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Atlas — Control Panel</title>
 <link rel="icon" type="image/png" href="/assets/atlas-icon.png"/>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -200,6 +198,8 @@ input:checked+.slider::before{transform:translateX(18px)}
 @keyframes toast-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 @keyframes spin{to{transform:rotate(360deg)}}
 .spin{animation:spin .8s linear infinite;display:inline-block}
+#review-card{background:#101e2d;color:#e9f4ff}.review-stage{grid-template-columns:28% 1fr;max-height:none}.review-playlist{grid-column:1;grid-row:1;background:#142536}.review-video-wrap{grid-column:2;grid-row:1}.review-playlist-item.active{background:#194572}.review-playlist-item[hidden]{display:none}#insights{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}#insights div{padding:12px;background:#15283b;border-left:3px solid #42c5e8;font-size:11px}#insights b{display:block;font-size:22px;margin-top:8px}#insights div:nth-child(2n){border-color:#a486fb}#review-card h3{margin:3px 0}#review-content{position:relative}.review-toolbar,.review-workspace{margin-left:29%;background:#142b3c}.review-workspace{max-height:150px;overflow:auto}.review-playlist-title{font-size:16px;text-transform:none;color:white}
+.playback-head{display:flex;align-items:center;gap:8px}.playback-head select{margin-left:auto;width:auto}.review-workspace,.review-toolbar,.map-tools{position:absolute;left:30%;right:1%;margin:0;z-index:2}.review-toolbar{bottom:1%;padding:4px;background:#0a2034ed}.review-workspace{bottom:52px;right:120px;background:#0a2034d9}.map-tools{left:auto;bottom:55px;width:106px;display:grid;gap:4px}.map-tools button,.playback-head button{background:#17344b;color:#d9efff;border:1px solid #38677e;border-radius:5px;padding:4px}.map-tools button:disabled{opacity:.5}.no-session .map-tools,.auto-hide:not(:hover):not(:focus-within) :is(.map-tools,.review-toolbar,.review-workspace){visibility:hidden}#review-note-editor.visible{position:absolute;z-index:5;bottom:45%;left:32%;right:3%;background:#172a3c}.review-playlist-item img{width:64px;height:44px;object-fit:cover;float:left;margin-right:10px;border-radius:4px}.review-playlist-item{min-height:58px}.review-playlist-item.active{background:#164879}#review-content:fullscreen{background:#0d1c29;padding:12px}.review-lane{min-height:15px}.map-tools [aria-pressed=true]{background:#166796}
 </style>
 </head>
 <body>
@@ -217,7 +217,7 @@ input:checked+.slider::before{transform:translateX(18px)}
 
   <div class="nav-section">
     <div class="nav-label">Session</div>
-    <div class="nav-item active" data-page="recording"><span class="nav-icon">🎬</span> Recording</div>
+    <div class="nav-item active" data-page="recording"><span class="nav-icon">🎬</span> New Record</div>
   </div>
 
   <div class="nav-section">
@@ -229,7 +229,7 @@ input:checked+.slider::before{transform:translateX(18px)}
     <div class="nav-label">Data</div>
     <div class="nav-item" data-page="sessions"><span class="nav-icon">📂</span> Sessions</div>
     <div class="nav-item" data-page="analysis"><span class="nav-icon">📊</span> Analysis</div>
-    <div class="nav-item" data-page="review"><span class="nav-icon">▶</span> Session Preview</div>
+    <div class="nav-item" data-page="review"><span class="nav-icon">▶</span> Playback</div>
     <div class="nav-item" data-page="video"><span class="nav-icon">🎞</span> Video Processing</div>
     <div class="nav-item" data-page="export"><span class="nav-icon">📤</span> Export</div>
   </div>
@@ -250,7 +250,7 @@ input:checked+.slider::before{transform:translateX(18px)}
 <main id="main">
   <div class="topbar">
     <div>
-      <div class="topbar-title" id="page-title">Recording Setup</div>
+      <div class="topbar-title" id="page-title">New Record</div>
       <div class="topbar-subtitle" id="page-subtitle">Configure participant and session details</div>
     </div>
   </div>
@@ -287,15 +287,14 @@ input:checked+.slider::before{transform:translateX(18px)}
       </div>
     </div>
     <div style="display:flex;gap:10px;align-items:center">
-      <button class="btn btn-primary" onclick="saveRecordingConfig()">💾 Save Session Info</button>
-      <span style="font-size:12px;color:var(--text3)">Save before pressing Start on the desktop widget</span>
+      <button class="btn btn-primary" id="record-action" onclick="recordAction()">Start Recording</button>
     </div>
   </div>
 
   <!-- ── Settings ── -->
   <div class="page" id="page-settings">
     <div class="card">
-      <div class="card-title"><span class="ct-icon">🎥</span> Recording</div>
+      <div class="card-title"><span class="ct-icon">🎥</span> New Record</div>
       <div class="grid-3">
         <div class="field"><label>Recording FPS</label><input type="number" id="fps" min="1" max="120" value="15"/></div>
         <div class="field"><label>Stop Hotkey</label><input type="text" id="hotkey" placeholder="Ctrl+Alt+F9"/></div>
@@ -390,7 +389,7 @@ input:checked+.slider::before{transform:translateX(18px)}
 
   <div class="page" id="page-review">
     <div class="card" id="review-card">
-      <div class="card-title"><span class="ct-icon">▶</span> Session Preview</div>
+      <div class="card-title playback-head">Playback <select aria-label="Video fit" onchange="setPlaybackFit(this.value)"><option value="contain">Fit to window</option><option value="cover">Fill window</option></select><button aria-label="Fullscreen" onclick="document.fullscreenElement ? document.exitFullscreen() : document.getElementById('review-content').requestFullscreen()">⛶</button></div>
       <select id="review-session-select" onchange="loadReview()" hidden><option value="">— select a session —</option></select>
       <div id="review-content" class="no-session">
         <div class="review-stage">
@@ -401,7 +400,7 @@ input:checked+.slider::before{transform:translateX(18px)}
             <div class="review-bubble" id="review-bubble" hidden></div>
           </div>
           <div class="review-playlist">
-            <div class="review-playlist-title">Session playlist</div>
+            <div class="review-playlist-title">Recent Sessions</div><input type="search" placeholder="Search sessions" aria-label="Search sessions" oninput="for(const item of document.querySelectorAll('.review-playlist-item')) item.hidden=!item.textContent.toLowerCase().includes(this.value.toLowerCase())">
             <div class="review-click-legend"><span style="--dot:#50a4ff">Left</span><span style="--dot:#ef6c78">Right</span><span style="--dot:#c890f3">Middle</span></div>
             <div id="review-playlist-items"></div>
           </div>
@@ -424,9 +423,9 @@ input:checked+.slider::before{transform:translateX(18px)}
           <button class="btn btn-primary btn-sm" onclick="reviewAddNote()">Save comment</button>
           <button class="btn btn-ghost btn-sm" onclick="reviewCloseNoteEditor()">Cancel</button>
         </div>
-        <div class="review-workspace" id="review-timeline"></div>
+        <div class="review-workspace" id="review-timeline"></div><div class="map-tools"><button onclick="showMouseHeat=!showMouseHeat; this.setAttribute('aria-pressed',showMouseHeat); reviewDrawOverlay()">Mouse heatmap</button><button disabled title="This recorder stores eye tracker triggers only">Eye tracker heatmap</button><button onclick="this.closest('#review-content').classList.toggle('auto-hide')">Auto-hide</button></div>
       </div>
-      <div id="review-message" style="font-size:13px;color:var(--text3)"></div>
+      <h3>Session Insights</h3><div id="insights"><div>Total Clicks<b>—</b></div><div>Total Fixations<b>—</b></div><div>Recording Duration<b>—</b></div><div>Scroll Events<b>—</b></div><div>Keystrokes<b>—</b></div><div>Comments<b>—</b></div></div><div id="review-message" style="font-size:13px;color:var(--text3)"></div>
     </div>
   </div>
 
@@ -534,11 +533,11 @@ let _videoPollTimer = null;
 
 // ── Page meta ──
 const PAGE_META = {
-  recording: { title:'Recording Setup',      sub:'Configure participant and session details' },
+  recording: { title:'New Record',      sub:'Configure participant and session details' },
   settings:  { title:'Settings',             sub:'Recording, tracking, and device configuration' },
   sessions:  { title:'Sessions',             sub:'All recorded usability test sessions' },
   analysis:  { title:'Batch Analysis',       sub:'Run analysis across all sessions' },
-  review:    { title:'Session Preview',      sub:'Video and interaction tracks' },
+  review:    { title:'Playback',      sub:'Video and interaction tracks' },
   video:     { title:'Video Processing',     sub:'Burn click overlays into screen recordings' },
   export:    { title:'Export & Processing',  sub:'Export data and post-process recordings' },
 };
@@ -605,6 +604,10 @@ async function loadConfig() {
   } catch(e) { toast('Failed to load config','error'); }
 }
 
+async function recordAction() {
+  if (_status?.is_recording) { location.href='/desktop/stop'; return; }
+  if (await saveRecordingConfig()) location.href='/desktop/start';
+}
 async function saveRecordingConfig() {
   const body = {
     participant_id: document.getElementById('participant_id').value.trim(),
@@ -614,7 +617,7 @@ async function saveRecordingConfig() {
   if (!body.participant_id) { toast('Participant ID is required','error'); return; }
   try {
     await api('POST', '/api/config', body);
-    toast('Session info saved — press Start on the desktop widget','success');
+    return true;
   } catch(e) { toast('Save failed','error'); }
 }
 
@@ -670,6 +673,7 @@ async function pollStatus() {
   try {
     _status = await api('GET','/api/status');
     const rec = _status.is_recording;
+    document.getElementById('record-action').textContent = rec ? 'Stop Recording' : 'Start Recording';
     const badge = document.getElementById('rec-badge');
     badge.classList.toggle('recording', rec);
     document.getElementById('rec-badge-label').textContent = rec ? 'Recording' : 'Idle';
@@ -766,7 +770,10 @@ async function loadReviewSessions() {
     const title = document.createElement('strong'); title.textContent = s.metadata?.task_label || s.id;
     const detail = document.createElement('small');
     detail.textContent = `${s.metadata?.participant_id || 'Participant'} · ${s.id}`;
-    item.append(title, detail);
+    const thumb = document.createElement('img'); thumb.loading='lazy'; thumb.alt='';
+    thumb.src = '/api/sessions/'+encodeURIComponent(s.id)+'/thumbnail';
+    thumb.onerror = () => thumb.remove();
+    item.append(thumb,title,detail);
     item.onclick = () => { select.value = s.id; loadReview(); };
     playlist.appendChild(item);
   });

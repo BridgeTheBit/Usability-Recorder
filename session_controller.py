@@ -171,6 +171,12 @@ class SessionController:
         first_frame_ts = self.screen_recorder.get_first_frame_timestamp_s()
         self.metadata["screen_first_frame_timestamp_s"] = first_frame_ts
         self.metadata["screen_capture_backend"] = self.screen_recorder.backend
+        if self.screen_recorder.backend == "opencv":
+            self.metadata["capture_geometry"] = dict(self.screen_recorder._monitor)
+        elif __import__("os").name == "nt":
+            from ctypes import windll
+            metric = windll.user32.GetSystemMetrics
+            self.metadata["capture_geometry"] = dict(left=metric(76), top=metric(77), width=metric(78), height=metric(79))
         self.metadata["screen_timing_method"] = self.screen_recorder.timing_method
         self.logger.info("Screen recorder started -> screen_recording.mp4 (first_frame_ts=%.6fs)", first_frame_ts or 0.0)
 

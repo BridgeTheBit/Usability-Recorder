@@ -609,6 +609,26 @@ class SettingsServer:
             candidate = (root / session_id).resolve()
             return candidate if candidate.parent == root and candidate.is_dir() else None
 
+        @app.route("/api/sessions/<session_id>/thumbnail")
+        def session_thumbnail(session_id):
+            directory = review_directory(session_id)
+            if directory is None or not (directory / "screen_recording.mp4").is_file():
+                return "", 404
+            target = directory / "playback-thumb.jpg"
+            if not target.is_file():
+                temp = directory / (uuid.uuid4().hex + ".jpg")
+                try:
+                    subprocess.run([require_ffmpeg(), "-loglevel", "error", "-i",
+                                    str(directory / "screen_recording.mp4"), "-frames:v", "1",
+                                    "-vf", "scale=128:-2", str(temp)], check=True, timeout=15,
+                                   creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+                    temp.replace(target)
+                except (OSError, subprocess.SubprocessError):
+                    return "", 404
+                finally:
+                    temp.unlink(missing_ok=True)
+            return send_from_directory(directory, target.name)
+
         @app.route("/api/sessions/<session_id>/review")
         def api_session_review(session_id: str):
             directory = review_directory(session_id)
@@ -625,7 +645,15 @@ class SettingsServer:
                 page = {"events": [], "next_cursor": None}
             metadata_path = directory / "session_metadata.json"
             metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
-            return jsonify({**page, "notes": load_notes(directory),
+            geometry = metadata.get("capture_geometry") or {}
+            if not geometry.get("width") and not cursor and (directory / "screen_recording.mp4").is_file():
+                import cv2
+                cap = cv2.VideoCapture(str(directory / "screen_recording.mp4"))
+                try:
+                    geometry = {"width": cap.get(cv2.CAP_PROP_FRAME_WIDTH), "height": cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}
+                finally:
+                    cap.release()
+            return jsonify({"geometry": geometry, "metrics": metadata.get("analysis_metrics", {}), **page, "notes": load_notes(directory),
                             "fps": float(metadata.get("fps") or 30),
                             "has_video": (directory / "screen_recording.mp4").is_file()})
 

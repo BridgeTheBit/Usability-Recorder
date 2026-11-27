@@ -74,7 +74,12 @@ def _parse_hotkey(hotkey_str: str) -> str:
 
 
 class ControlPanelPage(QWebEnginePage):
+    record_action = Signal(str)
+
     def acceptNavigationRequest(self, url: QUrl, navigation_type, is_main_frame: bool) -> bool:
+        if is_main_frame and url.host() == "127.0.0.1" and url.port() == self.url().port() and url.path() in ("/desktop/start", "/desktop/stop") and self.url().host() == "127.0.0.1":
+            self.record_action.emit(url.path().rsplit("/", 1)[1])
+            return False
         if is_main_frame and url.host().lower() == "github.com":
             QDesktopServices.openUrl(url)
             return False
@@ -106,58 +111,12 @@ class ControlPanelWindow(QMainWindow):
 
 # ─── Minimal Recording Widget ─────────────────────────────────────────────────
 
-class RecorderWidget(QWidget):
+class RecorderWidget(ControlPanelWindow):
     stop_requested = Signal()
 
-    # ── Styles ────────────────────────────────────────────────────────────────
-
-    _WINDOW_STYLE = """
-        RecorderWidget {
-            background-color: #0d1117;
-            border-radius: 12px;
-        }
-    """
-    _BTN_IDLE = """
-        QPushButton {
-            background-color: #238636;
-            color: #ffffff;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 700;
-            letter-spacing: 0.3px;
-        }
-        QPushButton:hover   { background-color: #2ea043; }
-        QPushButton:pressed { background-color: #196127; }
-        QPushButton:disabled{ background-color: #1c2128; color: #484f58; }
-    """
-    _BTN_REC = """
-        QPushButton {
-            background-color: #da3633;
-            color: #ffffff;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 700;
-            letter-spacing: 0.3px;
-        }
-        QPushButton:hover   { background-color: #f85149; }
-        QPushButton:pressed { background-color: #b02a27; }
-    """
-    _GEAR_STYLE = """
-        QPushButton {
-            background-color: transparent;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            color: #8b949e;
-            font-size: 18px;
-        }
-        QPushButton:hover   { background-color: #21262d; color: #58a6ff; border-color: #58a6ff; }
-        QPushButton:pressed { background-color: #161b22; }
-    """
-
-    def __init__(self, controller) -> None:
-        super().__init__()
+    def __init__(self, controller=None) -> None:
+        super().__init__(settings_server.port)
+        self.setWindowTitle("Atlas — Usability Recorder")
         self.controller = controller
         self._state: AppState = app_state
         self._server: SettingsServer = settings_server
@@ -171,9 +130,10 @@ class RecorderWidget(QWidget):
 
         self.stop_requested.connect(self.on_stop)
 
-        self._build_ui()
-        self._apply_saved_tracking()
-        self._register_hotkey(self._state.config.get("hotkey", "Ctrl+Alt+F9"))
+        self._status = QLabel("Ready")
+        self.statusBar().addWidget(self._status)
+        self._view.page().record_action.connect(self._record_action)
+        QTimer.singleShot(0, self._apply_saved_tracking)
 
         # Poll for web-panel-initiated actions every 500 ms
         self._poll_timer = QTimer(self)
@@ -182,81 +142,18 @@ class RecorderWidget(QWidget):
 
     # ── UI Construction ───────────────────────────────────────────────────────
 
-    def _build_ui(self) -> None:
-        self.setWindowTitle("Atlas — Usability Recorder")
-        self.setFixedSize(360, 130)
-        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
-        self.setStyleSheet(self._WINDOW_STYLE)
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(18, 14, 18, 14)
-        root.setSpacing(10)
-
-        # ── Header row ────────────────────────────────────────────────────────
-        hdr = QHBoxLayout()
-        hdr.setSpacing(8)
-
-        self._logo = QLabel()
-        logo_pixmap = QPixmap(str(get_resource_path("assets", "atlas-icon.png")))
-        self._logo.setPixmap(logo_pixmap.scaled(
-            26, 26,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        ))
-        hdr.addWidget(self._logo)
-
-        self._dot = QLabel("●")
-        self._dot.setStyleSheet("color: #484f58; font-size: 11px;")
-
-        self._title = QLabel("Atlas")
-        self._title.setStyleSheet("color: #8b949e; font-size: 12px; font-weight: 600;")
-
-        hdr.addWidget(self._dot)
-        hdr.addWidget(self._title)
-        hdr.addStretch()
-
-        self._gear_btn = QPushButton("⚙")
-        self._gear_btn.setFixedSize(32, 32)
-        self._gear_btn.setToolTip("Open Atlas Control Panel")
-        self._gear_btn.setStyleSheet(self._GEAR_STYLE)
-        self._gear_btn.clicked.connect(self._open_panel)
-        hdr.addWidget(self._gear_btn)
-
-        root.addLayout(hdr)
-
-        # ── Status ────────────────────────────────────────────────────────────
-        self._status = QLabel("Ready — open ⚙ to configure")
-        self._status.setStyleSheet("color: #484f58; font-size: 11px;")
-        root.addWidget(self._status)
-
-        # ── Record button ─────────────────────────────────────────────────────
-        self._rec_btn = QPushButton("▶   Start Recording")
-        self._rec_btn.setFixedHeight(44)
-        self._rec_btn.setStyleSheet(self._BTN_IDLE)
-        self._rec_btn.clicked.connect(self._toggle_recording)
-        root.addWidget(self._rec_btn)
-
-    # ── Slots ─────────────────────────────────────────────────────────────────
-
-    def _toggle_recording(self) -> None:
-        if self._state.is_recording:
-            self.on_stop()
-        else:
+    def _record_action(self, action):
+        if action == "start" and not self._state.is_recording:
             self.on_start()
-
-    def _open_panel(self) -> None:
-        if self._panel_window is None:
-            self._panel_window = ControlPanelWindow(self._server.port)
-        self._panel_window.showNormal()
-        self._panel_window.raise_()
-        self._panel_window.activateWindow()
+        elif action == "stop" and self._state.is_recording:
+            self.on_stop()
 
     def on_start(self) -> None:
         cfg = self._state.config
         participant_id = cfg.get("participant_id", "").strip()
 
         if not participant_id:
-            self._open_panel()
+            self.showNormal()
             QMessageBox.warning(
                 self,
                 "Participant ID Required",
@@ -272,8 +169,12 @@ class RecorderWidget(QWidget):
             if tracking_mode == "web":
                 self._ensure_web_tracker(web_tracker_port)
 
-            self.controller.session_root = Path(cfg.get("session_root", get_default_sessions_dir()))
 
+
+            if self.controller is None:
+                from session_controller import SessionController
+                self.controller = SessionController()
+            self.controller.session_root = Path(cfg.get("session_root", get_default_sessions_dir()))
             metadata = self.controller.start_session(
                 participant_id  = participant_id,
                 task_label      = cfg.get("task_label", ""),
@@ -292,10 +193,6 @@ class RecorderWidget(QWidget):
             self._state.set_recording(True, session_dir, (metadata.get("t0_monotonic") or 0) + metadata.get("task_start_timestamp_s", 0))
             self._start_elapsed_timer()
 
-            self._rec_btn.setStyleSheet(self._BTN_REC)
-            self._rec_btn.setText("⏹   Stop Recording")
-            self._dot.setStyleSheet("color: #f85149; font-size: 11px;")
-            self._title.setStyleSheet("color: #f85149; font-size: 12px; font-weight: 600;")
             self._update_status_label()
 
             self.showMinimized()
@@ -315,10 +212,6 @@ class RecorderWidget(QWidget):
         finally:
             self._state.set_recording(False)
             self._stop_elapsed_timer()
-            self._rec_btn.setStyleSheet(self._BTN_IDLE)
-            self._rec_btn.setText("▶   Start Recording")
-            self._dot.setStyleSheet("color: #484f58; font-size: 11px;")
-            self._title.setStyleSheet("color: #8b949e; font-size: 12px; font-weight: 600;")
 
         if stop_error is not None:
             self._status.setText("Session stopped with an error")
