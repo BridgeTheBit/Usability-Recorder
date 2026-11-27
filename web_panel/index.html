@@ -200,6 +200,14 @@ input:checked+.slider::before{transform:translateX(18px)}
 .spin{animation:spin .8s linear infinite;display:inline-block}
 #review-card{background:#101e2d;color:#e9f4ff}.review-stage{grid-template-columns:28% 1fr;max-height:none}.review-playlist{grid-column:1;grid-row:1;background:#142536}.review-video-wrap{grid-column:2;grid-row:1}.review-playlist-item.active{background:#194572}.review-playlist-item[hidden]{display:none}#insights{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}#insights div{padding:12px;background:#15283b;border-left:3px solid #42c5e8;font-size:11px}#insights b{display:block;font-size:22px;margin-top:8px}#insights div:nth-child(2n){border-color:#a486fb}#review-card h3{margin:3px 0}#review-content{position:relative}.review-toolbar,.review-workspace{margin-left:29%;background:#142b3c}.review-workspace{max-height:150px;overflow:auto}.review-playlist-title{font-size:16px;text-transform:none;color:white}
 .playback-head{display:flex;align-items:center;gap:8px}.playback-head select{margin-left:auto;width:auto}.review-workspace,.review-toolbar,.map-tools{position:absolute;left:30%;right:1%;margin:0;z-index:2}.review-toolbar{bottom:1%;padding:4px;background:#0a2034ed}.review-workspace{bottom:52px;right:120px;background:#0a2034d9}.map-tools{left:auto;bottom:55px;width:106px;display:grid;gap:4px}.map-tools button,.playback-head button{background:#17344b;color:#d9efff;border:1px solid #38677e;border-radius:5px;padding:4px}.map-tools button:disabled{opacity:.5}.no-session .map-tools,.auto-hide:not(:hover):not(:focus-within) :is(.map-tools,.review-toolbar,.review-workspace){visibility:hidden}#review-note-editor.visible{position:absolute;z-index:5;bottom:45%;left:32%;right:3%;background:#172a3c}.review-playlist-item img{width:64px;height:44px;object-fit:cover;float:left;margin-right:10px;border-radius:4px}.review-playlist-item{min-height:58px}.review-playlist-item.active{background:#164879}#review-content:fullscreen{background:#0d1c29;padding:12px}.review-lane{min-height:15px}.map-tools [aria-pressed=true]{background:#166796}
+.sess-metric{min-width:0;max-width:100%;box-sizing:border-box}.sess-metric .mv{overflow-wrap:anywhere;white-space:normal;line-height:1.25}.review-click-legend{flex-wrap:wrap}.back-key{color:#09aa92}.forward-key{color:#e68420}
+[data-theme=light] #review-card,[data-theme=light] #review-card:fullscreen{background:var(--bg);color:var(--text)}
+[data-theme=light] :is(.review-playlist,.review-toolbar,.review-workspace,#insights div,#review-note-editor.visible){background:var(--surface);color:var(--text);border-color:var(--border2)}
+[data-theme=light] :is(.review-playlist-title,.review-label,.review-tick,.playback-head){color:var(--text)}
+[data-theme=light] .review-playlist-item.active{background:#dbeaff;color:#163c70}
+[data-theme=light] :is(.map-tools button,.playback-head button){background:var(--surface2);color:var(--text);border-color:var(--border2)}
+[data-theme=light] .map-tools [aria-pressed=true]{background:#d2e8ff;color:#123d65}
+#review-card:fullscreen{width:100vw;height:100vh;box-sizing:border-box;background:var(--bg);overflow:auto}
 </style>
 </head>
 <body>
@@ -389,7 +397,7 @@ input:checked+.slider::before{transform:translateX(18px)}
 
   <div class="page" id="page-review">
     <div class="card" id="review-card">
-      <div class="card-title playback-head">Playback <select aria-label="Video fit" onchange="setPlaybackFit(this.value)"><option value="contain">Fit to window</option><option value="cover">Fill window</option></select><button aria-label="Fullscreen" onclick="document.fullscreenElement ? document.exitFullscreen() : document.getElementById('review-content').requestFullscreen()">⛶</button></div>
+      <div class="card-title playback-head">Playback <select aria-label="Video fit" onchange="setPlaybackFit(this.value)"><option value="contain">Fit to window</option><option value="cover">Fill window</option></select><button aria-label="Fullscreen" onclick="document.fullscreenElement ? document.exitFullscreen() : document.getElementById('review-card').requestFullscreen().catch(()=>toast('Fullscreen unavailable','error'))">⛶</button></div>
       <select id="review-session-select" onchange="loadReview()" hidden><option value="">— select a session —</option></select>
       <div id="review-content" class="no-session">
         <div class="review-stage">
@@ -401,7 +409,7 @@ input:checked+.slider::before{transform:translateX(18px)}
           </div>
           <div class="review-playlist">
             <div class="review-playlist-title">Recent Sessions</div><input type="search" placeholder="Search sessions" aria-label="Search sessions" oninput="for(const item of document.querySelectorAll('.review-playlist-item')) item.hidden=!item.textContent.toLowerCase().includes(this.value.toLowerCase())">
-            <div class="review-click-legend"><span style="--dot:#50a4ff">Left</span><span style="--dot:#ef6c78">Right</span><span style="--dot:#c890f3">Middle</span></div>
+            <div class="review-click-legend"><span style="--dot:#50a4ff">Left</span><span style="--dot:#ef6c78">Right</span><span style="--dot:#c890f3">Middle</span><span class="back-key" hidden>◀ Back</span><span class="forward-key" hidden>▶ Forward</span></div>
             <div id="review-playlist-items"></div>
           </div>
         </div>

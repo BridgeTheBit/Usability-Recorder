@@ -185,6 +185,10 @@ class VideoProcessorRunner:
                     col, lbl = (0, 0, int(255*alpha)), "L"
                 elif "right" in btn:
                     col, lbl = (int(40*alpha), int(235*alpha), int(245*alpha)), "R"
+                elif btn.split('.')[-1] in ('x1','button8','back'):
+                    col, lbl = (146,170,9), "<"
+                elif btn.split('.')[-1] in ('x2','button9','forward'):
+                    col, lbl = (32,132,230), ">"
                 else:
                     col, lbl = (0, int(255*alpha), 0), "M"
                 x, y = int(c["x"]), int(c["y"])

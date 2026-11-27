@@ -160,6 +160,12 @@ function drawMotion(ctx, left, top, scale) {
   }
 }
 
+function mouseStyle(button) {
+  const name = button.toLowerCase().replace(/^button\./,'');
+  if (['x1','button8','back'].includes(name)) return ['◀','#09aa92'];
+  if (['x2','button9','forward'].includes(name)) return ['▶','#e68420'];
+  return ({left:['L','#50a4ff'],right:['R','#ef6c78'],middle:['M','#c890f3']})[name] || ['?','#8895a5'];
+}
 function reviewDrawOverlay() {
   const canvas = document.getElementById('review-overlay');
   const bounds = canvas.getBoundingClientRect();
@@ -188,8 +194,7 @@ function reviewDrawOverlay() {
   reviewData.events.filter(e => e.type === 'mouse_click' && Number.isFinite(e.x) &&
     Number.isFinite(e.y) && now >= e.time && now <= e.time + 0.7).forEach(e => {
     const button = e.button.toLowerCase();
-    const kind = button.includes('right') ? 'R' : button.includes('middle') ? 'M' : 'L';
-    const color = kind === 'R' ? '#ef6c78' : kind === 'M' ? '#c890f3' : '#50a4ff';
+    const [kind,color] = mouseStyle(button);
     const g = reviewData.geometry || {};
     const x = left + (e.x - (g.left || 0)) * reviewVideo.videoWidth * scale / (g.width || reviewVideo.videoWidth);
     const y = top + (e.y - (g.top || 0)) * reviewVideo.videoHeight * scale / (g.height || reviewVideo.videoHeight);
@@ -230,6 +235,9 @@ async function loadReview() {
       reviewData.events = reviewData.events.concat(page.events);
       cursor = page.next_cursor;
     }
+    const symbols = new Set(reviewData.events.filter(e=>e.type==='mouse_click').map(e=>mouseStyle(e.button)[0]));
+    document.querySelector('.back-key').hidden=!symbols.has('◀');
+    document.querySelector('.forward-key').hidden=!symbols.has('▶');
     if (!data.has_video) { message.textContent = 'This session has no recording.'; return; }
     content.classList.remove('no-session');
     reviewRenderTimeline();
@@ -288,6 +296,10 @@ function reviewRenderTimeline() {
         const mark = document.createElement('button'); mark.className = 'review-range';
         mark.style.left = `${note.start / duration * 100}%`;
         mark.style.width = `${Math.max(1, (note.end - note.start) / duration * 100)}%`;
+        if (type === 'mouse_click') {
+          const symbol=mouseStyle(button)[0];
+          if (symbol==='◀' || symbol==='▶') mark.style.clipPath = symbol==='◀' ? 'polygon(100% 0,0 50%,100% 100%)' : 'polygon(0 0,100% 50%,0 100%)';
+        }
         mark.title = note.text;
         mark.onclick = () => {
           reviewSelectedNote = note.id; reviewStart = note.start; reviewEnd = note.end;
@@ -302,8 +314,12 @@ function reviewRenderTimeline() {
         mark.style.left = `${event.time / duration * 100}%`;
         const button = (event.button || '').toLowerCase();
         mark.style.background = type === 'mouse_click'
-          ? (button.includes('right') ? '#ef6c78' : button.includes('middle') ? '#c890f3' : '#50a4ff')
+          ? mouseStyle(button)[1]
           : color;
+        if (type === 'mouse_click') {
+          const symbol=mouseStyle(button)[0];
+          if (symbol==='◀' || symbol==='▶') mark.style.clipPath = symbol==='◀' ? 'polygon(100% 0,0 50%,100% 100%)' : 'polygon(0 0,100% 50%,0 100%)';
+        }
         mark.title = `${reviewClock(event.time)} ${name}${event.button ? ': ' + event.button : ''}`;
         mark.onclick = () => { reviewVideo.currentTime = event.time; reviewVideo.pause(); };
         lane.appendChild(mark);

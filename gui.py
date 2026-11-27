@@ -16,7 +16,7 @@ from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QIcon, QPixmap
-from PySide6.QtWebEngineCore import QWebEnginePage
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication,
@@ -98,10 +98,24 @@ class ControlPanelWindow(QMainWindow):
 
         self._view = QWebEngineView(self)
         self._view.setPage(ControlPanelPage(self._view))
+        page = self._view.page()
+        page.settings().setAttribute(QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True)
+        page.fullScreenRequested.connect(self._fullscreen)
         self.setCentralWidget(self._view)
         self._load_attempts = 0
         self._view.loadFinished.connect(self._on_load_finished)
         self._view.load(QUrl(f"http://127.0.0.1:{port}/"))
+
+    def _fullscreen(self, request):
+        entering = request.toggleOn()
+        request.accept()
+        if entering:
+            self._previous_state = self.windowState()
+            self.statusBar().hide()
+            self.showFullScreen()
+        else:
+            self.setWindowState(self._previous_state)
+            self.statusBar().show()
 
     def _on_load_finished(self, success: bool) -> None:
         if not success and self._load_attempts < 3:

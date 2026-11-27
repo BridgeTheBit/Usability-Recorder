@@ -100,6 +100,10 @@ class VideoProcessorThread(QThread):
                 elif 'right' in c['button'].lower():
                     color = (int(40 * alpha), int(235 * alpha), int(245 * alpha))
                     text = "Right Click"
+                elif c['button'].lower().split('.')[-1] in ('x1','button8','back'):
+                    color, text = (146,170,9), "<"
+                elif c['button'].lower().split('.')[-1] in ('x2','button9','forward'):
+                    color, text = (32,132,230), ">"
                 else:
                     color = (0, int(255 * alpha), 0)
                     text = "Middle Click"

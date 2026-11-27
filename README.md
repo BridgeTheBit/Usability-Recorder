@@ -1,4 +1,4 @@
-# Atlas — Usability Recorder (v1.3.1)
+# Atlas — Usability Recorder (v1.3.2)
 
 A hybrid usability testing recorder combining a minimal desktop control widget (Qt/PySide6) with a modern local web administration panel (Flask + Vanilla HTML5/CSS3 SPA). It synchronizes screen recording, input events (mouse/keyboard), active OS windows, browser-specific page interactions (clicks, menus, buttons via extension), and Pupil Labs eye trackers under a single monotonic clock reference.
 
@@ -54,7 +54,7 @@ sessions/P001_20260816_120000/
 
 ## 🚀 Windows installation
 
-1. Download `AtlasSetup-1.3.1-windows-x64.exe` from [GitHub Releases](https://github.com/BridgeTheBit/Usability-Recorder/releases) and run it. It installs for the current Windows user and does not require Python, command-line setup, or administrator access.
+1. Download `AtlasSetup-1.3.2-windows-x64.exe` from [GitHub Releases](https://github.com/BridgeTheBit/Usability-Recorder/releases) and run it. It installs for the current Windows user and does not require Python, command-line setup, or administrator access.
 2. Launch **Atlas** from the Start menu. Settings, recordings, and exports are kept in the `data` folder beside the installed app, so choosing D: stores them on D:. Existing default session data is moved from the previous `%LOCALAPPDATA%\Atlas\sessions` location on first launch.
 3. The installer places FFmpeg at `<Atlas install folder>\ffmpeg\ffmpeg.exe`. Atlas uses that executable for screen recording and click-overlay processing; no separate FFmpeg install or PATH setup is needed.
 
